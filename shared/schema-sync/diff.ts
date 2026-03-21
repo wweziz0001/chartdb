@@ -9,7 +9,7 @@ import {
     type CanonicalUniqueConstraint,
     qualifiedColumnName,
     qualifiedTableName,
-} from './canonical';
+} from './canonical.ts';
 
 export type ChangeRiskLevel = 'low' | 'medium' | 'high';
 export type SchemaChangeKind =

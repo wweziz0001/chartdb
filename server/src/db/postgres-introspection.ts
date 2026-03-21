@@ -3,8 +3,11 @@
 import type {
     CanonicalSchema,
     CanonicalTable,
-} from '../../../shared/schema-sync/canonical';
-import { withPostgresClient, type PgConnectionConfig } from './postgres-client';
+} from '../../../shared/schema-sync/canonical.ts';
+import {
+    withPostgresClient,
+    type PgConnectionConfig,
+} from './postgres-client.ts';
 
 export const POSTGRES_INTROSPECTION_QUERY = `
 WITH table_rows AS (

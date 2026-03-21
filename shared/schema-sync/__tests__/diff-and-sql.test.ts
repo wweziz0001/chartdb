@@ -2,9 +2,9 @@
 // @ts-nocheck
 /* @vitest-environment node */
 import { describe, expect, it } from 'vitest';
-import type { CanonicalSchema } from '../canonical';
-import { diffCanonicalSchemas } from '../diff';
-import { buildPostgresMigrationPlan } from '../postgres-sql';
+import type { CanonicalSchema } from '../canonical.ts';
+import { diffCanonicalSchemas } from '../diff.ts';
+import { buildPostgresMigrationPlan } from '../postgres-sql.ts';
 
 const baseline: CanonicalSchema = {
     engine: 'postgresql',

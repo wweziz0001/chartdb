@@ -4,11 +4,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { serverEnv } from '../config/env';
+import { serverEnv } from '../config/env.ts';
 import type {
     PostgresConnectionInput,
     StoredConnectionMetadata,
-} from '../../../shared/schema-sync/validation';
+} from '../../../shared/schema-sync/validation.ts';
 
 interface StoredConnectionRecord extends StoredConnectionMetadata {
     encryptedPassword: string;

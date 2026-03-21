@@ -2,12 +2,13 @@ import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export class HttpError extends Error {
-    constructor(
-        public readonly statusCode: number,
-        message: string,
-        public readonly details?: unknown
-    ) {
+    public readonly statusCode: number;
+    public readonly details?: unknown;
+
+    constructor(statusCode: number, message: string, details?: unknown) {
         super(message);
+        this.statusCode = statusCode;
+        this.details = details;
     }
 }
 

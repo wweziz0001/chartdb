@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
-import { buildPostgresMigrationPlan } from '../../../shared/schema-sync/postgres-sql';
-import type { CanonicalSchema } from '../../../shared/schema-sync/canonical';
-import type { PgConnectionConfig } from './postgres-client';
-import { withPostgresClient } from './postgres-client';
-import { HttpError } from '../utils/http';
+import { buildPostgresMigrationPlan } from '../../../shared/schema-sync/postgres-sql.ts';
+import type { CanonicalSchema } from '../../../shared/schema-sync/canonical.ts';
+import type { PgConnectionConfig } from './postgres-client.ts';
+import { withPostgresClient } from './postgres-client.ts';
+import { HttpError } from '../utils/http.ts';
 
 export interface ApplyApproval {
     allowDestructiveChanges: boolean;

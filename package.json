@@ -19,7 +19,7 @@
         "dev:full": "sh -c \"node --watch --experimental-strip-types server/src/index.ts & vite\"",
         "build:server": "tsc -p server/tsconfig.json",
         "typecheck": "tsc -b",
-        "start:server": "node dist-server/src/index.js"
+        "start:server": "node --experimental-strip-types server/src/index.ts"
     },
     "dependencies": {
         "@ai-sdk/openai": "^2.0.72",

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { canonicalSchemaSchema } from './canonical';
+import { canonicalSchemaSchema } from './canonical.ts';
 
 export const connectionSslSchema = z.object({
     enabled: z.boolean().default(false),

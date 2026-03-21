@@ -1,23 +1,23 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { canonicalSchemaSchema } from '../../../shared/schema-sync/canonical';
-import { diffCanonicalSchemas } from '../../../shared/schema-sync/diff';
-import { buildPostgresMigrationPlan } from '../../../shared/schema-sync/postgres-sql';
+import { canonicalSchemaSchema } from '../../../shared/schema-sync/canonical.ts';
+import { diffCanonicalSchemas } from '../../../shared/schema-sync/diff.ts';
+import { buildPostgresMigrationPlan } from '../../../shared/schema-sync/postgres-sql.ts';
 import {
     postgresConnectionInputSchema,
     schemaApplyRequestSchema,
     schemaDiffRequestSchema,
     schemaImportRequestSchema,
-} from '../../../shared/schema-sync/validation';
-import { auditStore } from '../audit/audit-store';
-import { serverEnv } from '../config/env';
-import { applyPostgresMigrationPlan } from '../db/postgres-apply';
-import { connectionStore } from '../db/connection-store';
-import { introspectPostgresSchema } from '../db/postgres-introspection';
-import { withPostgresClient } from '../db/postgres-client';
-import { HttpError, readJsonBody, sendJson, sha256 } from '../utils/http';
-import { logger } from '../utils/logger';
+} from '../../../shared/schema-sync/validation.ts';
+import { auditStore } from '../audit/audit-store.ts';
+import { serverEnv } from '../config/env.ts';
+import { applyPostgresMigrationPlan } from '../db/postgres-apply.ts';
+import { connectionStore } from '../db/connection-store.ts';
+import { introspectPostgresSchema } from '../db/postgres-introspection.ts';
+import { withPostgresClient } from '../db/postgres-client.ts';
+import { HttpError, readJsonBody, sendJson, sha256 } from '../utils/http.ts';
+import { logger } from '../utils/logger.ts';
 
 const actorFallback = { id: 'anonymous', name: 'Anonymous User' };
 

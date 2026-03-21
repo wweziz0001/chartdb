@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { serverEnv } from '../config/env';
+import { serverEnv } from '../config/env.ts';
 
 export interface AuditRecord {
     id: string;

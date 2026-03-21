@@ -10,7 +10,8 @@
         "resolveJsonModule": true,
         "noEmit": true,
         "rootDir": "..",
-        "types": ["node"]
+        "types": ["node"],
+        "allowImportingTsExtensions": true
     },
     "include": ["src/**/*.ts", "../shared/**/*.ts"]
 }

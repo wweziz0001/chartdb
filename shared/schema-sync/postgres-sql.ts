@@ -4,13 +4,13 @@ import {
     diffCanonicalSchemas,
     type SchemaChange,
     type SchemaDiffResult,
-} from './diff';
+} from './diff.ts';
 import {
     type CanonicalColumn,
     type CanonicalSchema,
     type CanonicalTable,
     qualifiedTableName,
-} from './canonical';
+} from './canonical.ts';
 
 export interface MigrationStatement {
     id: string;

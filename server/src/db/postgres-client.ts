@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
-import { HttpError } from '../utils/http';
+import { HttpError } from '../utils/http.ts';
 
 export interface PgConnectionConfig {
     host: string;
@@ -125,8 +125,11 @@ export class PostgresClient {
     private socket: net.Socket | tls.TLSSocket | null = null;
     private reader = new BufferReader();
     private rowDescription: string[] = [];
+    private readonly config: PgConnectionConfig;
 
-    constructor(private readonly config: PgConnectionConfig) {}
+    constructor(config: PgConnectionConfig) {
+        this.config = config;
+    }
 
     private async connectSocket(): Promise<net.Socket | tls.TLSSocket> {
         const socket = this.config.ssl?.enabled

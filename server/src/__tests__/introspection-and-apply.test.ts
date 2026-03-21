@@ -2,9 +2,9 @@
 // @ts-nocheck
 /* @vitest-environment node */
 import { describe, expect, it } from 'vitest';
-import { mapPostgresIntrospectionToCanonical } from '../db/postgres-introspection';
-import { validateApplyRequest } from '../db/postgres-apply';
-import type { CanonicalSchema } from '../../../shared/schema-sync/canonical';
+import { mapPostgresIntrospectionToCanonical } from '../db/postgres-introspection.ts';
+import { validateApplyRequest } from '../db/postgres-apply.ts';
+import type { CanonicalSchema } from '../../../shared/schema-sync/canonical.ts';
 
 const introspectionPayload = {
     tables: [

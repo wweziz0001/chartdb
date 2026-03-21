@@ -1,7 +1,7 @@
 import http from 'node:http';
-import { requestHandler } from './api/router';
-import { serverEnv } from './config/env';
-import { logger } from './utils/logger';
+import { requestHandler } from './api/router.ts';
+import { serverEnv } from './config/env.ts';
+import { logger } from './utils/logger.ts';
 
 const server = http.createServer((req, res) => {
     void requestHandler(req, res);
