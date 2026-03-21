@@ -71,6 +71,9 @@ export const ChartDBProvider: React.FC<
         diagram?.customTypes ?? []
     );
     const [notes, setNotes] = useState<Note[]>(diagram?.notes ?? []);
+    const [syncState, setSyncState] = useState<Diagram['syncState']>(
+        diagram?.syncState
+    );
 
     const { events: diffEvents } = useDiff();
 
@@ -154,6 +157,7 @@ export const ChartDBProvider: React.FC<
             areas,
             customTypes,
             notes,
+            syncState,
         }),
         [
             diagramId,
@@ -166,6 +170,7 @@ export const ChartDBProvider: React.FC<
             areas,
             customTypes,
             notes,
+            syncState,
             diagramCreatedAt,
             diagramUpdatedAt,
         ]
@@ -180,6 +185,7 @@ export const ChartDBProvider: React.FC<
             setAreas([]);
             setCustomTypes([]);
             setNotes([]);
+            setSyncState(undefined);
             setDiagramUpdatedAt(updatedAt);
 
             resetRedoStack();
@@ -1895,6 +1901,7 @@ export const ChartDBProvider: React.FC<
                 setDiagramUpdatedAt(diagram.updatedAt);
                 setHighlightedCustomTypeId(undefined);
                 setNotes(diagram.notes ?? []);
+                setSyncState(diagram.syncState);
 
                 events.emit({ action: 'load_diagram', data: { diagram } });
 
@@ -1916,6 +1923,7 @@ export const ChartDBProvider: React.FC<
                 setHighlightedCustomTypeId,
                 events,
                 setNotes,
+                setSyncState,
                 resetRedoStack,
                 resetUndoStack,
             ]
@@ -1929,6 +1937,19 @@ export const ChartDBProvider: React.FC<
             loadDiagramFromData(diagram);
         },
         [db, storageDB, loadDiagramFromData]
+    );
+
+    const updateSyncState: ChartDBContext['updateSyncState'] = useCallback(
+        async (nextSyncState) => {
+            await updateDiagramData(
+                {
+                    ...currentDiagram,
+                    syncState: nextSyncState,
+                },
+                { forceUpdateStorage: true }
+            );
+        },
+        [currentDiagram, updateDiagramData]
     );
 
     const loadDiagram: ChartDBContext['loadDiagram'] = useCallback(
@@ -2107,10 +2128,12 @@ export const ChartDBProvider: React.FC<
                 areas,
                 notes,
                 currentDiagram,
+                syncState,
                 schemas,
                 events,
                 readonly,
                 updateDiagramData,
+                updateSyncState,
                 updateDiagramId,
                 updateDiagramName,
                 loadDiagram,
