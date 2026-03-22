@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { StorageContext } from './storage-context';
 import { storageContext } from './storage-context';
 import Dexie, { type EntityTable } from 'dexie';
@@ -12,6 +12,25 @@ import type { Area } from '@/lib/domain/area';
 import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import type { Note } from '@/lib/domain/note';
+import { appPersistenceClient } from '@/features/app-persistence/api/app-persistence-client';
+
+const defaultDiagramOptions = {
+    includeRelationships: false,
+    includeTables: false,
+    includeDependencies: false,
+    includeAreas: false,
+    includeCustomTypes: false,
+    includeNotes: false,
+};
+
+const fullDiagramOptions = {
+    includeRelationships: true,
+    includeTables: true,
+    includeDependencies: true,
+    includeAreas: true,
+    includeCustomTypes: true,
+    includeNotes: true,
+};
 
 export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     children,
@@ -252,6 +271,277 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         });
         return dexieDB;
     }, []);
+    const remoteSyncTimeoutsRef = useRef<
+        Map<string, ReturnType<typeof setTimeout>>
+    >(new Map());
+
+    useEffect(() => {
+        const remoteSyncTimeouts = remoteSyncTimeoutsRef.current;
+        return () => {
+            remoteSyncTimeouts.forEach((timeoutId) => {
+                clearTimeout(timeoutId);
+            });
+            remoteSyncTimeouts.clear();
+        };
+    }, []);
+
+    const buildLocalDiagram = useCallback(
+        async (
+            id: string,
+            options: Parameters<
+                StorageContext['getDiagram']
+            >[1] = defaultDiagramOptions
+        ): Promise<Diagram | undefined> => {
+            const mergedOptions = { ...defaultDiagramOptions, ...options };
+            const diagram = await db.diagrams.get(id);
+
+            if (!diagram) {
+                return undefined;
+            }
+
+            const hydratedDiagram: Diagram = { ...diagram };
+
+            if (mergedOptions.includeTables) {
+                hydratedDiagram.tables = (await db.db_tables
+                    .where('diagramId')
+                    .equals(id)
+                    .toArray()) as Diagram['tables'];
+            }
+
+            if (mergedOptions.includeRelationships) {
+                hydratedDiagram.relationships = (await db.db_relationships
+                    .where('diagramId')
+                    .equals(id)
+                    .toArray()) as Diagram['relationships'];
+            }
+
+            if (mergedOptions.includeDependencies) {
+                hydratedDiagram.dependencies = (await db.db_dependencies
+                    .where('diagramId')
+                    .equals(id)
+                    .toArray()) as Diagram['dependencies'];
+            }
+
+            if (mergedOptions.includeAreas) {
+                hydratedDiagram.areas = (await db.areas
+                    .where('diagramId')
+                    .equals(id)
+                    .toArray()) as Diagram['areas'];
+            }
+
+            if (mergedOptions.includeCustomTypes) {
+                hydratedDiagram.customTypes = (await db.db_custom_types
+                    .where('diagramId')
+                    .equals(id)
+                    .toArray()) as Diagram['customTypes'];
+            }
+
+            if (mergedOptions.includeNotes) {
+                hydratedDiagram.notes = (await db.notes
+                    .where('diagramId')
+                    .equals(id)
+                    .toArray()) as Diagram['notes'];
+            }
+
+            return hydratedDiagram;
+        },
+        [db]
+    );
+
+    const listLocalDiagrams = useCallback(
+        async (
+            options: Parameters<
+                StorageContext['listDiagrams']
+            >[0] = defaultDiagramOptions
+        ): Promise<Diagram[]> => {
+            const diagrams = await db.diagrams.toArray();
+
+            return (
+                await Promise.all(
+                    diagrams.map((diagram) =>
+                        buildLocalDiagram(diagram.id, options)
+                    )
+                )
+            ).filter((diagram): diagram is Diagram => !!diagram);
+        },
+        [db, buildLocalDiagram]
+    );
+
+    const replaceLocalDiagram = useCallback(
+        async (diagram: Diagram) => {
+            await db.transaction(
+                'rw',
+                [
+                    db.diagrams,
+                    db.db_tables,
+                    db.db_relationships,
+                    db.db_dependencies,
+                    db.areas,
+                    db.db_custom_types,
+                    db.notes,
+                ],
+                async () => {
+                    await db.diagrams.put({
+                        id: diagram.id,
+                        name: diagram.name,
+                        databaseType: diagram.databaseType,
+                        databaseEdition: diagram.databaseEdition,
+                        schemaSync: diagram.schemaSync,
+                        createdAt: diagram.createdAt,
+                        updatedAt: diagram.updatedAt,
+                    });
+
+                    if (diagram.tables !== undefined) {
+                        await db.db_tables
+                            .where('diagramId')
+                            .equals(diagram.id)
+                            .delete();
+                    }
+                    if (diagram.relationships !== undefined) {
+                        await db.db_relationships
+                            .where('diagramId')
+                            .equals(diagram.id)
+                            .delete();
+                    }
+                    if (diagram.dependencies !== undefined) {
+                        await db.db_dependencies
+                            .where('diagramId')
+                            .equals(diagram.id)
+                            .delete();
+                    }
+                    if (diagram.areas !== undefined) {
+                        await db.areas
+                            .where('diagramId')
+                            .equals(diagram.id)
+                            .delete();
+                    }
+                    if (diagram.customTypes !== undefined) {
+                        await db.db_custom_types
+                            .where('diagramId')
+                            .equals(diagram.id)
+                            .delete();
+                    }
+                    if (diagram.notes !== undefined) {
+                        await db.notes
+                            .where('diagramId')
+                            .equals(diagram.id)
+                            .delete();
+                    }
+
+                    if (diagram.tables && diagram.tables.length > 0) {
+                        await db.db_tables.bulkPut(
+                            diagram.tables.map((table) => ({
+                                ...table,
+                                diagramId: diagram.id,
+                            }))
+                        );
+                    }
+
+                    if (
+                        diagram.relationships &&
+                        diagram.relationships.length > 0
+                    ) {
+                        await db.db_relationships.bulkPut(
+                            diagram.relationships.map((relationship) => ({
+                                ...relationship,
+                                diagramId: diagram.id,
+                            }))
+                        );
+                    }
+
+                    if (
+                        diagram.dependencies &&
+                        diagram.dependencies.length > 0
+                    ) {
+                        await db.db_dependencies.bulkPut(
+                            diagram.dependencies.map((dependency) => ({
+                                ...dependency,
+                                diagramId: diagram.id,
+                            }))
+                        );
+                    }
+
+                    if (diagram.areas && diagram.areas.length > 0) {
+                        await db.areas.bulkPut(
+                            diagram.areas.map((area) => ({
+                                ...area,
+                                diagramId: diagram.id,
+                            }))
+                        );
+                    }
+
+                    if (diagram.customTypes && diagram.customTypes.length > 0) {
+                        await db.db_custom_types.bulkPut(
+                            diagram.customTypes.map((customType) => ({
+                                ...customType,
+                                diagramId: diagram.id,
+                            }))
+                        );
+                    }
+
+                    if (diagram.notes && diagram.notes.length > 0) {
+                        await db.notes.bulkPut(
+                            diagram.notes.map((note) => ({
+                                ...note,
+                                diagramId: diagram.id,
+                            }))
+                        );
+                    }
+                }
+            );
+        },
+        [db]
+    );
+
+    const syncRemoteDiagramNow = useCallback(
+        async (diagramId: string) => {
+            if (!(await appPersistenceClient.isAvailable())) {
+                return;
+            }
+
+            const diagram = await buildLocalDiagram(
+                diagramId,
+                fullDiagramOptions
+            );
+            if (!diagram) {
+                return;
+            }
+
+            try {
+                const response =
+                    await appPersistenceClient.upsertDiagram(diagram);
+                await replaceLocalDiagram(response.diagram);
+            } catch (error) {
+                console.warn(
+                    'Unable to sync diagram to backend persistence.',
+                    error
+                );
+            }
+        },
+        [buildLocalDiagram, replaceLocalDiagram]
+    );
+
+    const scheduleRemoteDiagramSync = useCallback(
+        (diagramId: string) => {
+            if (!appPersistenceClient.isEnabled) {
+                return;
+            }
+
+            const existingTimeout =
+                remoteSyncTimeoutsRef.current.get(diagramId);
+            if (existingTimeout) {
+                clearTimeout(existingTimeout);
+            }
+
+            const timeoutId = setTimeout(() => {
+                remoteSyncTimeoutsRef.current.delete(diagramId);
+                void syncRemoteDiagramNow(diagramId);
+            }, 400);
+
+            remoteSyncTimeoutsRef.current.set(diagramId, timeoutId);
+        },
+        [syncRemoteDiagramNow]
+    );
 
     const getConfig: StorageContext['getConfig'] =
         useCallback(async (): Promise<ChartDBConfig | undefined> => {
@@ -299,8 +589,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ...table,
                 diagramId,
             });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const getTable: StorageContext['getTable'] = useCallback(
@@ -317,29 +608,36 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     .where('diagramId')
                     .equals(diagramId)
                     .delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     const updateTable: StorageContext['updateTable'] = useCallback(
         async ({ id, attributes }) => {
+            const existing = await db.db_tables.get(id);
             await db.db_tables.update(id, attributes);
+            if (existing) {
+                scheduleRemoteDiagramSync(existing.diagramId);
+            }
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const putTable: StorageContext['putTable'] = useCallback(
         async ({ diagramId, table }) => {
             await db.db_tables.put({ ...table, diagramId });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteTable: StorageContext['deleteTable'] = useCallback(
         async ({ id, diagramId }) => {
             await db.db_tables.where({ id, diagramId }).delete();
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const listTables: StorageContext['listTables'] = useCallback(
@@ -361,8 +659,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ...relationship,
                 diagramId,
             });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteDiagramRelationships: StorageContext['deleteDiagramRelationships'] =
@@ -372,8 +671,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     .where('diagramId')
                     .equals(diagramId)
                     .delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     const getRelationship: StorageContext['getRelationship'] = useCallback(
@@ -386,17 +686,22 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     const updateRelationship: StorageContext['updateRelationship'] =
         useCallback(
             async ({ id, attributes }) => {
+                const existing = await db.db_relationships.get(id);
                 await db.db_relationships.update(id, attributes);
+                if (existing) {
+                    scheduleRemoteDiagramSync(existing.diagramId);
+                }
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     const deleteRelationship: StorageContext['deleteRelationship'] =
         useCallback(
             async ({ id, diagramId }) => {
                 await db.db_relationships.where({ id, diagramId }).delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     const listRelationships: StorageContext['listRelationships'] = useCallback(
@@ -420,8 +725,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ...dependency,
                 diagramId,
             });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const getDependency: StorageContext['getDependency'] = useCallback(
@@ -433,16 +739,21 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const updateDependency: StorageContext['updateDependency'] = useCallback(
         async ({ id, attributes }) => {
+            const existing = await db.db_dependencies.get(id);
             await db.db_dependencies.update(id, attributes);
+            if (existing) {
+                scheduleRemoteDiagramSync(existing.diagramId);
+            }
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteDependency: StorageContext['deleteDependency'] = useCallback(
         async ({ diagramId, id }) => {
             await db.db_dependencies.where({ id, diagramId }).delete();
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const listDependencies: StorageContext['listDependencies'] = useCallback(
@@ -462,8 +773,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     .where('diagramId')
                     .equals(diagramId)
                     .delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     const addArea: StorageContext['addArea'] = useCallback(
@@ -472,8 +784,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ...area,
                 diagramId,
             });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const getArea: StorageContext['getArea'] = useCallback(
@@ -485,16 +798,21 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const updateArea: StorageContext['updateArea'] = useCallback(
         async ({ id, attributes }) => {
+            const existing = await db.areas.get(id);
             await db.areas.update(id, attributes);
+            if (existing) {
+                scheduleRemoteDiagramSync(existing.diagramId);
+            }
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteArea: StorageContext['deleteArea'] = useCallback(
         async ({ diagramId, id }) => {
             await db.areas.where({ id, diagramId }).delete();
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const listAreas: StorageContext['listAreas'] = useCallback(
@@ -511,8 +829,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         useCallback(
             async (diagramId) => {
                 await db.areas.where('diagramId').equals(diagramId).delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     // Custom type operations
@@ -522,8 +841,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ...customType,
                 diagramId,
             });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const getCustomType: StorageContext['getCustomType'] = useCallback(
@@ -535,16 +855,21 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const updateCustomType: StorageContext['updateCustomType'] = useCallback(
         async ({ id, attributes }) => {
+            const existing = await db.db_custom_types.get(id);
             await db.db_custom_types.update(id, attributes);
+            if (existing) {
+                scheduleRemoteDiagramSync(existing.diagramId);
+            }
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteCustomType: StorageContext['deleteCustomType'] = useCallback(
         async ({ diagramId, id }) => {
             await db.db_custom_types.where({ id, diagramId }).delete();
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const listCustomTypes: StorageContext['listCustomTypes'] = useCallback(
@@ -568,8 +893,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     .where('diagramId')
                     .equals(diagramId)
                     .delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     // Note operations
@@ -579,8 +905,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ...note,
                 diagramId,
             });
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const getNote: StorageContext['getNote'] = useCallback(
@@ -592,16 +919,21 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const updateNote: StorageContext['updateNote'] = useCallback(
         async ({ id, attributes }) => {
+            const existing = await db.notes.get(id);
             await db.notes.update(id, attributes);
+            if (existing) {
+                scheduleRemoteDiagramSync(existing.diagramId);
+            }
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteNote: StorageContext['deleteNote'] = useCallback(
         async ({ diagramId, id }) => {
             await db.notes.where({ id, diagramId }).delete();
+            scheduleRemoteDiagramSync(diagramId);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const listNotes: StorageContext['listNotes'] = useCallback(
@@ -618,213 +950,92 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         useCallback(
             async (diagramId) => {
                 await db.notes.where('diagramId').equals(diagramId).delete();
+                scheduleRemoteDiagramSync(diagramId);
             },
-            [db]
+            [db, scheduleRemoteDiagramSync]
         );
 
     const addDiagram: StorageContext['addDiagram'] = useCallback(
         async ({ diagram }) => {
-            const promises = [];
-            promises.push(
-                db.diagrams.add({
-                    id: diagram.id,
-                    name: diagram.name,
-                    databaseType: diagram.databaseType,
-                    databaseEdition: diagram.databaseEdition,
-                    schemaSync: diagram.schemaSync,
-                    createdAt: diagram.createdAt,
-                    updatedAt: diagram.updatedAt,
-                })
-            );
-
-            const tables = diagram.tables ?? [];
-            promises.push(
-                ...tables.map((table) =>
-                    addTable({ diagramId: diagram.id, table })
-                )
-            );
-
-            const relationships = diagram.relationships ?? [];
-            promises.push(
-                ...relationships.map((relationship) =>
-                    addRelationship({ diagramId: diagram.id, relationship })
-                )
-            );
-
-            const dependencies = diagram.dependencies ?? [];
-            promises.push(
-                ...dependencies.map((dependency) =>
-                    addDependency({ diagramId: diagram.id, dependency })
-                )
-            );
-
-            const areas = diagram.areas ?? [];
-            promises.push(
-                ...areas.map((area) => addArea({ diagramId: diagram.id, area }))
-            );
-
-            const customTypes = diagram.customTypes ?? [];
-            promises.push(
-                ...customTypes.map((customType) =>
-                    addCustomType({ diagramId: diagram.id, customType })
-                )
-            );
-
-            const notes = diagram.notes ?? [];
-            promises.push(
-                ...notes.map((note) => addNote({ diagramId: diagram.id, note }))
-            );
-
-            await Promise.all(promises);
+            await replaceLocalDiagram(diagram);
+            await syncRemoteDiagramNow(diagram.id);
         },
-        [
-            db,
-            addArea,
-            addCustomType,
-            addDependency,
-            addRelationship,
-            addTable,
-            addNote,
-        ]
+        [replaceLocalDiagram, syncRemoteDiagramNow]
     );
 
     const listDiagrams: StorageContext['listDiagrams'] = useCallback(
-        async (
-            options = {
-                includeRelationships: false,
-                includeTables: false,
-                includeDependencies: false,
-                includeAreas: false,
-                includeCustomTypes: false,
-                includeNotes: false,
-            }
-        ): Promise<Diagram[]> => {
-            let diagrams = await db.diagrams.toArray();
+        async (options = defaultDiagramOptions): Promise<Diagram[]> => {
+            const localDiagrams = await listLocalDiagrams(options);
 
-            if (options.includeTables) {
-                diagrams = await Promise.all(
-                    diagrams.map(async (diagram) => {
-                        diagram.tables = await listTables(diagram.id);
-                        return diagram;
-                    })
+            if (!(await appPersistenceClient.isAvailable())) {
+                return localDiagrams;
+            }
+
+            try {
+                const response =
+                    await appPersistenceClient.listDiagrams(options);
+
+                if (response.items.length === 0 && localDiagrams.length > 0) {
+                    localDiagrams.forEach((diagram) => {
+                        scheduleRemoteDiagramSync(diagram.id);
+                    });
+                    return localDiagrams;
+                }
+
+                await Promise.all(
+                    response.items.map((diagram) =>
+                        replaceLocalDiagram(diagram)
+                    )
                 );
-            }
 
-            if (options.includeRelationships) {
-                diagrams = await Promise.all(
-                    diagrams.map(async (diagram) => {
-                        diagram.relationships = await listRelationships(
-                            diagram.id
-                        );
-                        return diagram;
-                    })
+                return response.items;
+            } catch (error) {
+                console.warn(
+                    'Unable to load diagrams from backend persistence. Falling back to local storage.',
+                    error
                 );
+                return localDiagrams;
             }
-
-            if (options.includeDependencies) {
-                diagrams = await Promise.all(
-                    diagrams.map(async (diagram) => {
-                        diagram.dependencies = await listDependencies(
-                            diagram.id
-                        );
-                        return diagram;
-                    })
-                );
-            }
-
-            if (options.includeAreas) {
-                diagrams = await Promise.all(
-                    diagrams.map(async (diagram) => {
-                        diagram.areas = await listAreas(diagram.id);
-                        return diagram;
-                    })
-                );
-            }
-
-            if (options.includeCustomTypes) {
-                diagrams = await Promise.all(
-                    diagrams.map(async (diagram) => {
-                        diagram.customTypes = await listCustomTypes(diagram.id);
-                        return diagram;
-                    })
-                );
-            }
-
-            if (options.includeNotes) {
-                diagrams = await Promise.all(
-                    diagrams.map(async (diagram) => {
-                        diagram.notes = await listNotes(diagram.id);
-                        return diagram;
-                    })
-                );
-            }
-
-            return diagrams;
         },
-        [
-            db,
-            listAreas,
-            listCustomTypes,
-            listDependencies,
-            listRelationships,
-            listTables,
-            listNotes,
-        ]
+        [listLocalDiagrams, replaceLocalDiagram, scheduleRemoteDiagramSync]
     );
 
     const getDiagram: StorageContext['getDiagram'] = useCallback(
         async (
             id,
-            options = {
-                includeRelationships: false,
-                includeTables: false,
-                includeDependencies: false,
-                includeAreas: false,
-                includeCustomTypes: false,
-                includeNotes: false,
-            }
+            options = defaultDiagramOptions
         ): Promise<Diagram | undefined> => {
-            const diagram = await db.diagrams.get(id);
+            const localDiagram = await buildLocalDiagram(id, options);
 
-            if (!diagram) {
-                return undefined;
+            if (!(await appPersistenceClient.isAvailable())) {
+                return localDiagram;
             }
 
-            if (options.includeTables) {
-                diagram.tables = await listTables(id);
-            }
+            try {
+                const response = await appPersistenceClient.getDiagram(
+                    id,
+                    options
+                );
+                await replaceLocalDiagram(response.diagram);
+                return response.diagram;
+            } catch (error) {
+                if (localDiagram) {
+                    scheduleRemoteDiagramSync(id);
+                    return localDiagram;
+                }
 
-            if (options.includeRelationships) {
-                diagram.relationships = await listRelationships(id);
-            }
+                if (appPersistenceClient.isNotFoundError(error)) {
+                    return undefined;
+                }
 
-            if (options.includeDependencies) {
-                diagram.dependencies = await listDependencies(id);
+                console.warn(
+                    'Unable to load diagram from backend persistence. Falling back to local storage.',
+                    error
+                );
+                return localDiagram;
             }
-
-            if (options.includeAreas) {
-                diagram.areas = await listAreas(id);
-            }
-
-            if (options.includeCustomTypes) {
-                diagram.customTypes = await listCustomTypes(id);
-            }
-
-            if (options.includeNotes) {
-                diagram.notes = await listNotes(id);
-            }
-
-            return diagram;
         },
-        [
-            db,
-            listAreas,
-            listCustomTypes,
-            listDependencies,
-            listRelationships,
-            listTables,
-            listNotes,
-        ]
+        [buildLocalDiagram, replaceLocalDiagram, scheduleRemoteDiagramSync]
     );
 
     const updateDiagram: StorageContext['updateDiagram'] = useCallback(
@@ -857,8 +1068,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     }),
                 ]);
             }
+
+            scheduleRemoteDiagramSync(attributes.id ?? id);
         },
-        [db]
+        [db, scheduleRemoteDiagramSync]
     );
 
     const deleteDiagram: StorageContext['deleteDiagram'] = useCallback(
@@ -872,6 +1085,19 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 db.db_custom_types.where('diagramId').equals(id).delete(),
                 db.notes.where('diagramId').equals(id).delete(),
             ]);
+
+            if (appPersistenceClient.isEnabled) {
+                try {
+                    if (await appPersistenceClient.isAvailable()) {
+                        await appPersistenceClient.deleteDiagram(id);
+                    }
+                } catch (error) {
+                    console.warn(
+                        'Unable to delete diagram from backend persistence.',
+                        error
+                    );
+                }
+            }
         },
         [db]
     );

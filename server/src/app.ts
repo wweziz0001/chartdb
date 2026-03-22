@@ -14,18 +14,26 @@ import { ConnectionsService } from './services/connections-service.js';
 import { SchemaSyncService } from './services/schema-sync-service.js';
 import { ApplyService } from './services/apply-service.js';
 import { AppError } from './utils/app-error.js';
+import { AppPersistenceRepository } from './app-persistence/repository.js';
+import { AppPersistenceService } from './app-persistence/service.js';
+import { registerAppPersistenceRoutes } from './app-persistence/routes.js';
 
-export const buildApp = () => {
+export const buildApp = (env = serverEnv) => {
     const app = Fastify({
         logger: {
-            level: 'info',
+            level: env.logLevel,
+            base: {
+                service: 'chartdb-api',
+                environment: env.nodeEnv,
+            },
             redact: ['req.body.connection.secret.password', 'password'],
         },
     });
-    const repository = new MetadataRepository(serverEnv.metadataDbPath);
+    const repository = new MetadataRepository(env.metadataDbPath);
+    const appRepository = new AppPersistenceRepository(env.metadataDbPath);
     const connectionsService = new ConnectionsService(
         repository,
-        serverEnv.encryptionKey
+        env.encryptionKey
     );
     const schemaSyncService = new SchemaSyncService(
         repository,
@@ -36,9 +44,10 @@ export const buildApp = () => {
         connectionsService,
         schemaSyncService
     );
+    const appPersistenceService = new AppPersistenceService(appRepository, env);
 
     app.register(cors, {
-        origin: serverEnv.corsOrigin === '*' ? true : serverEnv.corsOrigin,
+        origin: env.corsOrigin === '*' ? true : env.corsOrigin,
     });
 
     app.setErrorHandler((error, request, reply) => {
@@ -65,10 +74,21 @@ export const buildApp = () => {
         });
     });
 
+    app.addHook('onClose', async () => {
+        repository.close();
+        appRepository.close();
+    });
+
     app.get('/api/health', async () => ({
         ok: true,
-        service: 'chartdb-schema-sync-api',
+        service: 'chartdb-api',
+        schemaSync: {
+            storage: 'sqlite',
+        },
+        appPersistence: appPersistenceService.getHealth(),
     }));
+
+    registerAppPersistenceRoutes(app, appPersistenceService);
 
     app.get('/api/connections', async () => ({
         items: connectionsService.listConnections(),

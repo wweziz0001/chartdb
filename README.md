@@ -44,13 +44,20 @@
 
 ### 🎉 ChartDB
 
-ChartDB is a powerful, web-based database diagramming editor that now also includes a production-minded schema synchronization workflow for PostgreSQL.
-You can import a live schema from a real database, edit it visually, preview a structured migration plan, inspect generated SQL, and apply approved changes through a server-side safety layer.
+ChartDB is a powerful, web-based database diagramming editor that now also includes:
+
+- a production-minded schema synchronization workflow for PostgreSQL
+- a backend persistence foundation for self-hosted projects and saved diagrams
+
+You can import a live schema from a real database, edit it visually, preview a structured migration plan, inspect generated SQL, apply approved changes through a server-side safety layer, and persist ChartDB project data on the backend for future multi-user features.
 
 **What it does now**:
 
 - **Direct PostgreSQL Connectivity**
   Store database connections server-side, test them safely, and keep passwords out of the browser after submission.
+
+- **Backend Project Persistence Foundation**
+  Persist users, projects, and saved diagrams in the backend while keeping the existing editor experience intact through a storage abstraction and local fallback.
 
 - **Live Schema Import**
   Import the live PostgreSQL schema into the existing visual editor and keep a persisted baseline snapshot for later diff/apply.
@@ -138,11 +145,14 @@ See [`.env.example`](./.env.example) for the full list.
 Key variables:
 
 - `VITE_API_BASE_URL`: optional frontend API base override
+- `VITE_ENABLE_SERVER_PERSISTENCE`: enables frontend sync to `/api/app/*`
 - `CHARTDB_API_HOST`: backend bind host
 - `CHARTDB_API_PORT`: backend port
 - `CHARTDB_SECRET_KEY`: encryption key for stored connection secrets
 - `CHARTDB_DATA_DIR`: backend metadata/audit SQLite location
 - `CHARTDB_CORS_ORIGIN`: backend CORS policy
+- `CHARTDB_LOG_LEVEL`: structured backend log level
+- `CHARTDB_DEFAULT_USER_*`: bootstrapped local owner identity for self-hosted mode
 
 ### Build
 
@@ -171,10 +181,10 @@ npm run dev:web
 4. Use `Import Live Schema` to bring the live schema into the canvas.
 5. Modify the schema visually in ChartDB.
 6. Open `Preview Changes` to inspect:
-   - summary
-   - detailed diff
-   - generated SQL
-   - risk warnings
+    - summary
+    - detailed diff
+    - generated SQL
+    - risk warnings
 7. If destructive operations are present, type the required confirmation text.
 8. Click `Apply Changes`.
 9. Review the result and then `Refresh From Database` to re-import the live state.
@@ -184,17 +194,19 @@ npm run dev:web
 - `packages/schema-sync-core`
   Shared canonical schema model, diff engine, SQL generation, risk analysis, and API contracts.
 - `server`
-  Fastify API for connection storage, PostgreSQL introspection, plan generation, apply execution, and audit/history persistence.
+  Fastify API for app persistence, connection storage, PostgreSQL introspection, plan generation, apply execution, and audit/history persistence.
 - `src`
-  Existing ChartDB editor plus schema-sync UI, adapters between `Diagram` and `CanonicalSchema`, and toolbar/dialog integration.
+  Existing ChartDB editor plus schema-sync UI, adapters between `Diagram` and `CanonicalSchema`, toolbar/dialog integration, and a storage provider that can mirror diagrams to the backend.
 
 See [docs/schema-sync-architecture.md](./docs/schema-sync-architecture.md) for the detailed design.
+See [docs/backend-persistence-architecture.md](./docs/backend-persistence-architecture.md) for the new self-hosted persistence foundation.
 
 ## Security Considerations
 
 - Browser clients never connect directly to PostgreSQL.
 - Raw database passwords are never returned to the browser after submission.
 - Connection secrets are encrypted at rest using application-level AES-256-GCM.
+- Self-hosted ChartDB project data is persisted server-side instead of relying only on browser storage.
 - The UI cannot execute arbitrary SQL.
 - Apply only executes server-generated plans.
 - Destructive operations require explicit confirmation text.
