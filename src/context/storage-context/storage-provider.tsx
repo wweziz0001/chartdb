@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import type {
+    SavedCollection,
     SavedDiagram,
     SavedProject,
     StorageContext,
@@ -17,7 +18,10 @@ import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import type { Note } from '@/lib/domain/note';
 import {
+    deserializeCollectionSummary,
     deserializeDiagram,
+    deserializeProjectSummary,
+    type PersistedCollectionSummary,
     type PersistedDiagramSummary,
     type PersistedProjectSummary,
     persistenceClient,
@@ -26,6 +30,10 @@ import {
 } from '@/features/persistence/api/persistence-client';
 import { cloneDiagram } from '@/lib/clone';
 
+interface CachedCollectionRecord extends Omit<
+    SavedCollection,
+    'projectCount' | 'diagramCount'
+> {}
 interface CachedProjectRecord extends Omit<SavedProject, 'diagramCount'> {}
 
 interface CachedDiagramRecord extends SavedDiagram {}
@@ -58,12 +66,36 @@ const normalizeIncludeOptions = (
     ...(options ?? {}),
 });
 
+const toCachedCollection = (
+    collection: PersistedCollectionSummary
+): CachedCollectionRecord => ({
+    id: collection.id,
+    name: collection.name,
+    description: collection.description,
+    ownerUserId: collection.ownerUserId,
+    createdAt: new Date(collection.createdAt),
+    updatedAt: new Date(collection.updatedAt),
+});
+
+const toSavedCollection = (
+    collection: CachedCollectionRecord,
+    counts?: {
+        projectCount?: number;
+        diagramCount?: number;
+    }
+): SavedCollection => ({
+    ...collection,
+    projectCount: counts?.projectCount ?? 0,
+    diagramCount: counts?.diagramCount ?? 0,
+});
+
 const toCachedProject = (
     project: PersistedProjectSummary
 ): CachedProjectRecord => ({
     id: project.id,
     name: project.name,
     description: project.description,
+    collectionId: project.collectionId,
     ownerUserId: project.ownerUserId,
     visibility: project.visibility,
     status: project.status,
@@ -155,6 +187,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             diagram_filters: EntityTable<
                 DiagramFilter & { diagramId: string },
                 'diagramId' // primary key "id" (for the typings only)
+            >;
+            saved_collections: EntityTable<
+                CachedCollectionRecord,
+                'id' // primary key "id" (for the typings only)
             >;
             saved_projects: EntityTable<
                 CachedProjectRecord,
@@ -367,6 +403,26 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             saved_diagrams: 'id, projectId, name, updatedAt, createdAt',
         });
 
+        dexieDB.version(15).stores({
+            diagrams:
+                '++id, name, databaseType, databaseEdition, createdAt, updatedAt',
+            db_tables:
+                '++id, diagramId, name, schema, x, y, fields, indexes, color, createdAt, width, comment, isView, isMaterializedView, order',
+            db_relationships:
+                '++id, diagramId, name, sourceSchema, sourceTableId, targetSchema, targetTableId, sourceFieldId, targetFieldId, type, createdAt',
+            db_dependencies:
+                '++id, diagramId, schema, tableId, dependentSchema, dependentTableId, createdAt',
+            areas: '++id, diagramId, name, x, y, width, height, color',
+            db_custom_types:
+                '++id, diagramId, schema, type, kind, values, fields',
+            config: '++id, defaultDiagramId',
+            diagram_filters: 'diagramId, tableIds, schemasIds',
+            notes: '++id, diagramId, content, x, y, width, height, color',
+            saved_collections: 'id, name, updatedAt, createdAt',
+            saved_projects: 'id, collectionId, name, updatedAt, createdAt',
+            saved_diagrams: 'id, projectId, name, updatedAt, createdAt',
+        });
+
         dexieDB.on('ready', async () => {
             const config = await dexieDB.config.get(1);
 
@@ -434,9 +490,24 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const cacheProject = useCallback(
         async (project: PersistedProjectSummary): Promise<SavedProject> => {
-            const cached = toCachedProject(project);
+            const cached = toCachedProject(deserializeProjectSummary(project));
             await db.saved_projects.put(cached);
             return toSavedProject(cached, project.diagramCount);
+        },
+        [db]
+    );
+
+    const cacheCollection = useCallback(
+        async (
+            collection: PersistedCollectionSummary
+        ): Promise<SavedCollection> => {
+            const normalized = deserializeCollectionSummary(collection);
+            const cached = toCachedCollection(normalized);
+            await db.saved_collections.put(cached);
+            return toSavedCollection(cached, {
+                projectCount: normalized.projectCount,
+                diagramCount: normalized.diagramCount,
+            });
         },
         [db]
     );
@@ -469,6 +540,63 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         },
         [db, removeLocalDiagramSnapshot]
     );
+
+    const deleteCollectionCache = useCallback(
+        async (collectionId: string): Promise<void> => {
+            await db.saved_collections.delete(collectionId);
+            await db.saved_projects
+                .where('collectionId')
+                .equals(collectionId)
+                .modify({ collectionId: null });
+        },
+        [db]
+    );
+
+    const readCachedCollections = useCallback(async (): Promise<
+        SavedCollection[]
+    > => {
+        const collections = await db.saved_collections.toArray();
+        const projects = await db.saved_projects.toArray();
+        const diagrams = await db.saved_diagrams.toArray();
+        const projectById = new Map(
+            projects.map((project) => [project.id, project])
+        );
+
+        const projectCounts = new Map<string, number>();
+        const diagramCounts = new Map<string, number>();
+
+        for (const project of projects) {
+            if (!project.collectionId) {
+                continue;
+            }
+
+            projectCounts.set(
+                project.collectionId,
+                (projectCounts.get(project.collectionId) ?? 0) + 1
+            );
+        }
+
+        for (const diagram of diagrams) {
+            const project = projectById.get(diagram.projectId);
+            if (!project?.collectionId) {
+                continue;
+            }
+
+            diagramCounts.set(
+                project.collectionId,
+                (diagramCounts.get(project.collectionId) ?? 0) + 1
+            );
+        }
+
+        return collections
+            .map((collection) =>
+                toSavedCollection(collection, {
+                    projectCount: projectCounts.get(collection.id) ?? 0,
+                    diagramCount: diagramCounts.get(collection.id) ?? 0,
+                })
+            )
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    }, [db]);
 
     const readCachedProjects = useCallback(async (): Promise<
         SavedProject[]
@@ -732,6 +860,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 name: LOCAL_ONLY_PROJECT_NAME,
                 description:
                     'Fallback browser-only project when the ChartDB API is unavailable.',
+                collectionId: null,
                 ownerUserId: null,
                 visibility: 'private',
                 status: 'active',
@@ -777,15 +906,32 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     }, [readLocalDiagrams]);
 
     const syncRemoteCatalog = useCallback(async (): Promise<void> => {
-        const response = await persistenceClient.listProjects();
-        const remoteProjects = response.items;
+        const [collectionsResponse, projectsResponse] = await Promise.all([
+            persistenceClient.listCollections(),
+            persistenceClient.listProjects(),
+        ]);
+        const remoteCollections = collectionsResponse.items;
+        const remoteProjects = projectsResponse.items;
+        const seenCollectionIds = new Set(
+            remoteCollections.map((collection) => collection.id)
+        );
+        const cachedCollections = await db.saved_collections.toArray();
         const seenProjectIds = new Set(
             remoteProjects.map((project) => project.id)
         );
         const cachedProjects = await db.saved_projects.toArray();
 
         await Promise.all(
+            remoteCollections.map((collection) => cacheCollection(collection))
+        );
+        await Promise.all(
             remoteProjects.map((project) => cacheProject(project))
+        );
+
+        await Promise.all(
+            cachedCollections
+                .filter((collection) => !seenCollectionIds.has(collection.id))
+                .map((collection) => deleteCollectionCache(collection.id))
         );
 
         await Promise.all(
@@ -819,8 +965,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         );
     }, [
         cacheDiagram,
+        cacheCollection,
         cacheProject,
         db,
+        deleteCollectionCache,
         deleteProjectCache,
         removeLocalDiagramSnapshot,
     ]);
@@ -1341,8 +1489,76 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             syncRemoteCatalog,
         ]);
 
-    const createProject: StorageContext['createProject'] = useCallback(
+    const listCollections: StorageContext['listCollections'] =
+        useCallback(async () => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                return [];
+            }
+
+            await syncRemoteCatalog();
+            return await readCachedCollections();
+        }, [
+            ensureRemotePersistenceReady,
+            readCachedCollections,
+            syncRemoteCatalog,
+        ]);
+
+    const createCollection: StorageContext['createCollection'] = useCallback(
         async ({ name, description }) => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'ChartDB server persistence is unavailable. Collections can only be created when the API is reachable.'
+                );
+            }
+
+            const response = await persistenceClient.createCollection({
+                name,
+                description,
+            });
+
+            return await cacheCollection(response.collection);
+        },
+        [cacheCollection, ensureRemotePersistenceReady]
+    );
+
+    const updateCollection: StorageContext['updateCollection'] = useCallback(
+        async (collectionId, params) => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'ChartDB server persistence is unavailable. Collection metadata cannot be updated right now.'
+                );
+            }
+
+            const response = await persistenceClient.updateCollection(
+                collectionId,
+                params
+            );
+
+            return await cacheCollection(response.collection);
+        },
+        [cacheCollection, ensureRemotePersistenceReady]
+    );
+
+    const deleteCollection: StorageContext['deleteCollection'] = useCallback(
+        async (collectionId) => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'ChartDB server persistence is unavailable. Collections cannot be deleted right now.'
+                );
+            }
+
+            await persistenceClient.deleteCollection(collectionId);
+            await deleteCollectionCache(collectionId);
+        },
+        [deleteCollectionCache, ensureRemotePersistenceReady]
+    );
+
+    const createProject: StorageContext['createProject'] = useCallback(
+        async ({ name, description, collectionId }) => {
             await ensureRemotePersistenceReady();
             if (!remoteReadyRef.current) {
                 throw new Error(
@@ -1353,6 +1569,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             const response = await persistenceClient.createProject({
                 name,
                 description,
+                collectionId,
             });
 
             return await cacheProject(response.project);
@@ -1815,6 +2032,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             value={{
                 getConfig,
                 updateConfig,
+                listCollections,
+                createCollection,
+                updateCollection,
+                deleteCollection,
                 listProjects,
                 createProject,
                 updateProject,

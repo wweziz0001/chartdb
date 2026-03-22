@@ -10,10 +10,22 @@ import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import type { Note } from '@/lib/domain/note';
 
+export interface SavedCollection {
+    id: string;
+    name: string;
+    description: string | null;
+    ownerUserId: string | null;
+    projectCount: number;
+    diagramCount: number;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
 export interface SavedProject {
     id: string;
     name: string;
     description: string | null;
+    collectionId: string | null;
     ownerUserId: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'active' | 'archived' | 'deleted';
@@ -45,14 +57,29 @@ export interface StorageContext {
     updateConfig: (config: Partial<ChartDBConfig>) => Promise<void>;
 
     // Saved project operations
+    listCollections: () => Promise<SavedCollection[]>;
+    createCollection: (params: {
+        name: string;
+        description?: string | null;
+    }) => Promise<SavedCollection>;
+    updateCollection: (
+        collectionId: string,
+        params: { name?: string; description?: string | null }
+    ) => Promise<SavedCollection>;
+    deleteCollection: (collectionId: string) => Promise<void>;
     listProjects: () => Promise<SavedProject[]>;
     createProject: (params: {
         name: string;
         description?: string | null;
+        collectionId?: string | null;
     }) => Promise<SavedProject>;
     updateProject: (
         projectId: string,
-        params: { name?: string; description?: string | null }
+        params: {
+            name?: string;
+            description?: string | null;
+            collectionId?: string | null;
+        }
     ) => Promise<SavedProject>;
     deleteProject: (projectId: string) => Promise<void>;
     listProjectDiagrams: (projectId: string) => Promise<SavedDiagram[]>;
@@ -79,6 +106,7 @@ export interface StorageContext {
         createProject?: {
             name: string;
             description?: string | null;
+            collectionId?: string | null;
         };
     }) => Promise<Diagram | undefined>;
 
@@ -224,6 +252,10 @@ export interface StorageContext {
 export const storageInitialValue: StorageContext = {
     getConfig: emptyFn,
     updateConfig: emptyFn,
+    listCollections: emptyFn,
+    createCollection: emptyFn,
+    updateCollection: emptyFn,
+    deleteCollection: emptyFn,
     listProjects: emptyFn,
     createProject: emptyFn,
     updateProject: emptyFn,

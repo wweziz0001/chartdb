@@ -1,14 +1,18 @@
 import type { AppRepository } from '../repositories/app-repository.js';
 import {
     type AppUserRecord,
+    type CollectionRecord,
     type DiagramRecord,
     type ProjectRecord,
 } from '../repositories/app-repository.js';
 import {
+    createCollectionSchema,
     createProjectSchema,
     diagramDocumentSchema,
     type DiagramDocument,
+    listProjectsQuerySchema,
     listProjectDiagramsQuerySchema,
+    updateCollectionSchema,
     updateDiagramSchema,
     upsertDiagramSchema,
     updateProjectSchema,
@@ -19,6 +23,11 @@ import { generateId } from '../utils/id.js';
 export interface BootstrapResult {
     user: AppUserRecord;
     defaultProject: ProjectRecord;
+}
+
+export interface CollectionSummary extends CollectionRecord {
+    projectCount: number;
+    diagramCount: number;
 }
 
 const DEFAULT_USER_CONFIG_KEY = 'default_user_id';
@@ -74,6 +83,7 @@ export class PersistenceService {
                 id: projectId,
                 name: this.defaults.defaultProjectName,
                 description: 'Default self-hosted ChartDB project',
+                collectionId: null,
                 ownerUserId: user.id,
                 visibility: 'private',
                 status: 'active',
@@ -88,10 +98,26 @@ export class PersistenceService {
 
     listProjects(options?: {
         search?: string;
+        collectionId?: string;
+        unassigned?: boolean;
     }): Array<ProjectRecord & { diagramCount: number }> {
-        const searchTerm = options?.search?.trim().toLowerCase();
+        const resolvedOptions = listProjectsQuerySchema.parse(options ?? {});
+        const searchTerm = resolvedOptions.search?.trim().toLowerCase();
         return this.repository
             .listProjects()
+            .filter((project) => {
+                if (resolvedOptions.unassigned) {
+                    return project.collectionId === null;
+                }
+
+                if (resolvedOptions.collectionId) {
+                    return (
+                        project.collectionId === resolvedOptions.collectionId
+                    );
+                }
+
+                return true;
+            })
             .filter((project) =>
                 searchTerm
                     ? project.name.toLowerCase().includes(searchTerm) ||
@@ -107,14 +133,98 @@ export class PersistenceService {
             }));
     }
 
+    listCollections(): CollectionSummary[] {
+        const projects = this.repository.listProjects();
+        const collections = this.repository.listCollections();
+        const diagramCounts = new Map(
+            projects.map((project) => [
+                project.id,
+                this.repository.listProjectDiagrams(project.id).length,
+            ])
+        );
+
+        return collections.map((collection) => {
+            const collectionProjects = projects.filter(
+                (project) => project.collectionId === collection.id
+            );
+
+            return {
+                ...collection,
+                projectCount: collectionProjects.length,
+                diagramCount: collectionProjects.reduce(
+                    (count, project) =>
+                        count + (diagramCounts.get(project.id) ?? 0),
+                    0
+                ),
+            };
+        });
+    }
+
+    createCollection(input: unknown): CollectionRecord {
+        const payload = createCollectionSchema.parse(input);
+        const bootstrap = this.bootstrap();
+        const now = new Date().toISOString();
+        const collection: CollectionRecord = {
+            id: generateId(),
+            name: payload.name,
+            description: payload.description ?? null,
+            ownerUserId: bootstrap.user.id,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        this.repository.putCollection(collection);
+        return collection;
+    }
+
+    updateCollection(collectionId: string, input: unknown): CollectionRecord {
+        const collection = this.repository.getCollection(collectionId);
+        if (!collection) {
+            throw new AppError(
+                'Collection not found.',
+                404,
+                'COLLECTION_NOT_FOUND'
+            );
+        }
+
+        const payload = updateCollectionSchema.parse(input);
+        const updatedCollection: CollectionRecord = {
+            ...collection,
+            name: payload.name ?? collection.name,
+            description:
+                payload.description !== undefined
+                    ? (payload.description ?? null)
+                    : collection.description,
+            updatedAt: new Date().toISOString(),
+        };
+
+        this.repository.putCollection(updatedCollection);
+        return updatedCollection;
+    }
+
+    deleteCollection(collectionId: string) {
+        const collection = this.repository.getCollection(collectionId);
+        if (!collection) {
+            throw new AppError(
+                'Collection not found.',
+                404,
+                'COLLECTION_NOT_FOUND'
+            );
+        }
+
+        this.repository.deleteCollection(collectionId);
+    }
+
     createProject(input: unknown): ProjectRecord {
         const payload = createProjectSchema.parse(input);
         const bootstrap = this.bootstrap();
         const now = new Date().toISOString();
+        const collectionId = this.resolveCollectionId(payload.collectionId);
         const project: ProjectRecord = {
             id: generateId(),
             name: payload.name,
             description: payload.description ?? null,
+            collectionId,
             ownerUserId: bootstrap.user.id,
             visibility: payload.visibility ?? 'private',
             status: payload.status ?? 'active',
@@ -132,6 +242,10 @@ export class PersistenceService {
         }
 
         const payload = updateProjectSchema.parse(input);
+        const collectionId =
+            payload.collectionId !== undefined
+                ? this.resolveCollectionId(payload.collectionId)
+                : project.collectionId;
         const updatedProject: ProjectRecord = {
             ...project,
             name: payload.name ?? project.name,
@@ -139,6 +253,7 @@ export class PersistenceService {
                 payload.description !== undefined
                     ? (payload.description ?? null)
                     : project.description,
+            collectionId,
             visibility: payload.visibility ?? project.visibility,
             status: payload.status ?? project.status,
             updatedAt: new Date().toISOString(),
@@ -315,6 +430,23 @@ export class PersistenceService {
             createdAt: new Date(document.createdAt),
             updatedAt: new Date(document.updatedAt),
         };
+    }
+
+    private resolveCollectionId(collectionId?: string | null) {
+        if (collectionId === undefined || collectionId === null) {
+            return null;
+        }
+
+        const collection = this.repository.getCollection(collectionId);
+        if (!collection) {
+            throw new AppError(
+                'Collection not found.',
+                404,
+                'COLLECTION_NOT_FOUND'
+            );
+        }
+
+        return collection.id;
     }
 
     private toDiagramResponse(diagram: DiagramRecord) {

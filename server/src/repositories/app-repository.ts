@@ -26,9 +26,19 @@ export interface ProjectRecord {
     id: string;
     name: string;
     description: string | null;
+    collectionId: string | null;
     ownerUserId: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'active' | 'archived' | 'deleted';
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CollectionRecord {
+    id: string;
+    name: string;
+    description: string | null;
+    ownerUserId: string | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -142,6 +152,30 @@ export class AppRepository {
                     ON app_diagrams(project_id, name);
                 `,
             },
+            {
+                version: 2,
+                sql: `
+                    CREATE TABLE IF NOT EXISTS app_collections (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        owner_user_id TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY(owner_user_id) REFERENCES app_users(id) ON DELETE SET NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_app_collections_owner_updated
+                    ON app_collections(owner_user_id, updated_at DESC);
+
+                    ALTER TABLE app_projects
+                    ADD COLUMN collection_id TEXT
+                    REFERENCES app_collections(id) ON DELETE SET NULL;
+
+                    CREATE INDEX IF NOT EXISTS idx_app_projects_collection_updated
+                    ON app_projects(collection_id, updated_at DESC);
+                `,
+            },
         ] as const;
 
         for (const migration of migrations) {
@@ -233,11 +267,70 @@ export class AppRepository {
         return row ? this.mapUser(row) : undefined;
     }
 
+    listCollections(): CollectionRecord[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT id, name, description, owner_user_id, created_at, updated_at
+                FROM app_collections
+                ORDER BY updated_at DESC, created_at DESC
+                `
+            )
+            .all() as Array<Record<string, unknown>>;
+
+        return rows.map((row) => this.mapCollection(row));
+    }
+
+    getCollection(id: string): CollectionRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT id, name, description, owner_user_id, created_at, updated_at
+                FROM app_collections
+                WHERE id = ?
+                `
+            )
+            .get(id) as Record<string, unknown> | undefined;
+
+        return row ? this.mapCollection(row) : undefined;
+    }
+
+    putCollection(collection: CollectionRecord) {
+        this.db
+            .prepare(
+                `
+                INSERT INTO app_collections (
+                    id, name, description, owner_user_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    owner_user_id = excluded.owner_user_id,
+                    updated_at = excluded.updated_at
+                `
+            )
+            .run(
+                collection.id,
+                collection.name,
+                collection.description,
+                collection.ownerUserId,
+                collection.createdAt,
+                collection.updatedAt
+            );
+    }
+
+    deleteCollection(id: string) {
+        this.db.prepare(`DELETE FROM app_collections WHERE id = ?`).run(id);
+    }
+
     listProjects(): ProjectRecord[] {
         const rows = this.db
             .prepare(
                 `
-                SELECT id, name, description, owner_user_id, visibility, status, created_at, updated_at
+                SELECT
+                    id, name, description, collection_id, owner_user_id,
+                    visibility, status, created_at, updated_at
                 FROM app_projects
                 ORDER BY updated_at DESC, created_at DESC
                 `
@@ -251,7 +344,9 @@ export class AppRepository {
         const row = this.db
             .prepare(
                 `
-                SELECT id, name, description, owner_user_id, visibility, status, created_at, updated_at
+                SELECT
+                    id, name, description, collection_id, owner_user_id,
+                    visibility, status, created_at, updated_at
                 FROM app_projects
                 WHERE id = ?
                 `
@@ -266,12 +361,14 @@ export class AppRepository {
             .prepare(
                 `
                 INSERT INTO app_projects (
-                    id, name, description, owner_user_id, visibility, status, created_at, updated_at
+                    id, name, description, collection_id, owner_user_id,
+                    visibility, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
+                    collection_id = excluded.collection_id,
                     owner_user_id = excluded.owner_user_id,
                     visibility = excluded.visibility,
                     status = excluded.status,
@@ -282,6 +379,7 @@ export class AppRepository {
                 project.id,
                 project.name,
                 project.description,
+                project.collectionId,
                 project.ownerUserId,
                 project.visibility,
                 project.status,
@@ -384,11 +482,23 @@ export class AppRepository {
         };
     }
 
+    private mapCollection(row: Record<string, unknown>): CollectionRecord {
+        return {
+            id: String(row.id),
+            name: String(row.name),
+            description: row.description ? String(row.description) : null,
+            ownerUserId: row.owner_user_id ? String(row.owner_user_id) : null,
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
+        };
+    }
+
     private mapProject(row: Record<string, unknown>): ProjectRecord {
         return {
             id: String(row.id),
             name: String(row.name),
             description: row.description ? String(row.description) : null,
+            collectionId: row.collection_id ? String(row.collection_id) : null,
             ownerUserId: row.owner_user_id ? String(row.owner_user_id) : null,
             visibility: projectVisibilitySchema.parse(row.visibility),
             status: projectStatusSchema.parse(row.status),

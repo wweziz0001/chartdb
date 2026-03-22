@@ -16,11 +16,23 @@ export interface PersistedProjectSummary {
     id: string;
     name: string;
     description: string | null;
+    collectionId: string | null;
     ownerUserId: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'active' | 'archived' | 'deleted';
     createdAt: string;
     updatedAt: string;
+    diagramCount: number;
+}
+
+export interface PersistedCollectionSummary {
+    id: string;
+    name: string;
+    description: string | null;
+    ownerUserId: string | null;
+    createdAt: string;
+    updatedAt: string;
+    projectCount: number;
     diagramCount: number;
 }
 
@@ -62,8 +74,14 @@ export interface PersistedDiagramRecord {
 export interface PersistedProjectInput {
     name: string;
     description?: string | null;
+    collectionId?: string | null;
     visibility?: 'private' | 'workspace' | 'public';
     status?: 'active' | 'archived' | 'deleted';
+}
+
+export interface PersistedCollectionInput {
+    name: string;
+    description?: string | null;
 }
 
 export interface PersistedDiagramUpdateInput {
@@ -98,6 +116,12 @@ export const deserializeProjectSummary = (
     ...project,
 });
 
+export const deserializeCollectionSummary = (
+    collection: PersistedCollectionSummary
+): PersistedCollectionSummary => ({
+    ...collection,
+});
+
 export const deserializeDiagramSummary = (
     diagram: PersistedDiagramSummary
 ): PersistedDiagramSummary => ({
@@ -106,6 +130,33 @@ export const deserializeDiagramSummary = (
 
 export const persistenceClient = {
     bootstrap: async () => requestJson<BootstrapResponse>('/api/app/bootstrap'),
+    listCollections: async () =>
+        requestJson<{ items: PersistedCollectionSummary[] }>(
+            '/api/collections'
+        ),
+    createCollection: async (payload: PersistedCollectionInput) =>
+        requestJson<{ collection: PersistedCollectionSummary }>(
+            '/api/collections',
+            {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            }
+        ),
+    updateCollection: async (
+        collectionId: string,
+        payload: Partial<PersistedCollectionInput>
+    ) =>
+        requestJson<{ collection: PersistedCollectionSummary }>(
+            `/api/collections/${collectionId}`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
+    deleteCollection: async (collectionId: string) =>
+        requestJson<{ ok: boolean }>(`/api/collections/${collectionId}`, {
+            method: 'DELETE',
+        }),
     listProjects: async (options?: { search?: string }) => {
         const params = new URLSearchParams();
         if (options?.search) {

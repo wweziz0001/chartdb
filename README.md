@@ -56,6 +56,9 @@ You can import a live schema from a real database, edit it visually, persist pro
   Persist ChartDB projects and diagrams through the backend API instead of relying only on browser storage. The editor still works locally, but a running backend now becomes the durable source of truth for saved work.
   Save, save as, reopen, rename, and delete flows now operate on saved projects and diagrams from inside the editor.
 
+- **Collections For Organization**
+  Group saved projects into flat collections, move projects between collections, and browse diagrams through collection-based organization without introducing nested folders or extra admin concepts.
+
 - **Live Schema Import**
   Import the live PostgreSQL schema into the existing visual editor and keep a persisted baseline snapshot for later diff/apply.
 
@@ -126,9 +129,11 @@ When the backend is available, ChartDB bootstraps a default self-hosted owner/pr
 Saved-project behavior now looks like this:
 
 - `Save` persists the current diagram back to its saved project immediately.
-- `Save As` creates a new saved diagram and can place it into an existing or brand new project.
-- `Open Saved Project` lets you browse projects, reopen diagrams, rename saved diagrams, and delete saved diagrams or whole projects.
+- `Save As` creates a new saved diagram and can place it into an existing or brand new project, including a project assigned to a collection.
+- `Open Saved Project` lets you browse collections, filter projects by collection, move projects between collections, reopen diagrams, rename saved diagrams, and delete saved diagrams or whole projects.
 - Browser-local Dexie storage still acts as the editor working cache, but the backend becomes the durable source of truth for saved projects when it is reachable.
+
+See [Project Collections](./docs/project-collections.md) for the organization model.
 
 ### Full Local Stack With Docker
 
@@ -177,6 +182,10 @@ Useful backend endpoints:
 
 - `GET /api/health`
 - `GET /api/app/bootstrap`
+- `GET /api/collections`
+- `POST /api/collections`
+- `PATCH /api/collections/:id`
+- `DELETE /api/collections/:id`
 - `GET /api/projects`
 - `POST /api/projects`
 - `PATCH /api/projects/:id`

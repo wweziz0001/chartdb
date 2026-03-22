@@ -38,6 +38,55 @@ describe('persistence foundation', () => {
 
         expect(bootstrap.user.authProvider).toBe('placeholder');
         expect(bootstrap.defaultProject.ownerUserId).toBe(bootstrap.user.id);
+        expect(bootstrap.defaultProject.collectionId).toBeNull();
+
+        repository.close();
+    });
+
+    it('supports collection CRUD and project assignment', () => {
+        const { repository, service } = createService();
+        service.bootstrap();
+        const collection = service.createCollection({
+            name: 'Platform Team',
+            description: 'Shared architecture work',
+        });
+
+        const project = service.createProject({
+            name: 'Service Map',
+            collectionId: collection.id,
+        });
+
+        expect(project.collectionId).toBe(collection.id);
+        expect(service.listCollections()).toEqual([
+            expect.objectContaining({
+                id: collection.id,
+                name: 'Platform Team',
+                projectCount: 1,
+                diagramCount: 0,
+            }),
+        ]);
+
+        const updatedCollection = service.updateCollection(collection.id, {
+            name: 'Platform Architecture',
+        });
+        expect(updatedCollection.name).toBe('Platform Architecture');
+
+        const movedProject = service.updateProject(project.id, {
+            collectionId: null,
+        });
+        expect(movedProject.collectionId).toBeNull();
+        expect(
+            service.listProjects({ unassigned: true }).map((item) => item.id)
+        ).toContain(project.id);
+        expect(
+            service.listProjects({ collectionId: collection.id })
+        ).toHaveLength(0);
+
+        service.deleteCollection(collection.id);
+        expect(service.listCollections()).toHaveLength(0);
+
+        const persistedProject = repository.getProject(project.id);
+        expect(persistedProject?.collectionId).toBeNull();
 
         repository.close();
     });
