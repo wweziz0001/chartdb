@@ -5,6 +5,16 @@ export const registerPersistenceRoutes = (
     app: FastifyInstance,
     context: AppContext
 ) => {
+    app.post('/api/backups/export', async (request) => {
+        return context.persistenceService.exportBackup(request.body);
+    });
+
+    app.post('/api/backups/import', async (request) => {
+        return {
+            import: context.persistenceService.importBackup(request.body),
+        };
+    });
+
     app.get('/api/app/bootstrap', async () => {
         return context.persistenceService.bootstrap();
     });

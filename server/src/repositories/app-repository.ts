@@ -72,6 +72,10 @@ export class AppRepository {
         this.db.close();
     }
 
+    transaction<T>(callback: () => T): T {
+        return this.db.transaction(callback)();
+    }
+
     private initialize() {
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('foreign_keys = ON');
