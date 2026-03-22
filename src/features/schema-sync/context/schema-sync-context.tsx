@@ -99,15 +99,32 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
     const refreshConnections = useCallback(async () => {
         const items = await schemaSyncApi.listConnections();
         setConnections(items);
-        if (
-            !selectedConnectionId &&
-            chartdb.currentDiagram.syncState?.connectionId
-        ) {
-            setSelectedConnectionId(
-                chartdb.currentDiagram.syncState.connectionId
-            );
+        const persistedConnectionId =
+            chartdb.currentDiagram.syncState?.connectionId;
+        const activeConnectionId =
+            selectedConnectionId ?? persistedConnectionId;
+        if (!activeConnectionId) {
+            return;
         }
-    }, [chartdb.currentDiagram.syncState?.connectionId, selectedConnectionId]);
+
+        const connectionStillExists = items.some(
+            (connection) => connection.id === activeConnectionId
+        );
+        if (connectionStillExists) {
+            setSelectedConnectionId(activeConnectionId);
+            return;
+        }
+
+        setSelectedConnectionId(undefined);
+        setBaselineSchema(undefined);
+        setPreview(undefined);
+        setLastApplyResult(undefined);
+        await persistSyncState(undefined);
+    }, [
+        chartdb.currentDiagram.syncState?.connectionId,
+        persistSyncState,
+        selectedConnectionId,
+    ]);
 
     useEffect(() => {
         void refreshConnections();
@@ -145,13 +162,17 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                 await refreshConnections();
                 if (selectedConnectionId === id) {
                     setSelectedConnectionId(undefined);
+                    setBaselineSchema(undefined);
+                    setPreview(undefined);
+                    setLastApplyResult(undefined);
+                    await persistSyncState(undefined);
                 }
                 toast({ title: 'Connection removed' });
             } finally {
                 setLoading(false);
             }
         },
-        [refreshConnections, selectedConnectionId, toast]
+        [persistSyncState, refreshConnections, selectedConnectionId, toast]
     );
 
     const testConnection = useCallback(
@@ -172,7 +193,20 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
 
     const selectConnection = useCallback(
         async (id: string) => {
+            const connectionChanged = selectedConnectionId !== id;
             setSelectedConnectionId(id);
+            if (connectionChanged) {
+                setBaselineSchema(undefined);
+                setPreview(undefined);
+                setLastApplyResult(undefined);
+                await persistSyncState({ connectionId: id });
+                toast({
+                    title: 'Connection switched',
+                    description:
+                        'Import the live schema again before previewing or applying changes.',
+                });
+                return;
+            }
             await persistSyncState({
                 ...chartdb.currentDiagram.syncState,
                 connectionId: id,
@@ -183,7 +217,13 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                     chartdb.currentDiagram.syncState?.lastApplyAuditId,
             });
         },
-        [baselineSchema, chartdb.currentDiagram.syncState, persistSyncState]
+        [
+            baselineSchema,
+            chartdb.currentDiagram.syncState,
+            persistSyncState,
+            selectedConnectionId,
+            toast,
+        ]
     );
 
     const getTargetSchema = useCallback(
@@ -227,6 +267,7 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                 });
                 setBaselineSchema(schema);
                 setPreview(undefined);
+                setLastApplyResult(undefined);
                 toast({
                     title: 'Schema imported',
                     description: `Imported ${schema.tables.length} database objects into the canvas.`,
@@ -316,13 +357,14 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                         result.status === 'applied'
                             ? getTargetSchema()
                             : baselineSchema,
-                    previewAuditId: preview?.auditId,
+                    previewAuditId: undefined,
                     lastApplyAuditId: result.auditId,
                     importedAt: new Date().toISOString(),
                 });
                 if (result.status === 'applied') {
                     setBaselineSchema(getTargetSchema());
                 }
+                setPreview(undefined);
                 toast({
                     title:
                         result.status === 'applied'
@@ -343,7 +385,6 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
             chartdb.currentDiagram.syncState,
             getTargetSchema,
             persistSyncState,
-            preview?.auditId,
             selectedConnectionId,
             toast,
         ]
