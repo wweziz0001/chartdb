@@ -64,3 +64,16 @@ export const upsertDiagramSchema = z.object({
     description: z.string().trim().max(500).optional(),
     diagram: diagramDocumentSchema,
 });
+
+export const updateDiagramSchema = z
+    .object({
+        projectId: z.string().trim().min(1).optional(),
+        ownerUserId: z.string().trim().min(1).optional(),
+        name: z.string().trim().min(1).max(120).optional(),
+        description: z.string().trim().max(500).nullable().optional(),
+        visibility: diagramVisibilitySchema.optional(),
+        status: diagramStatusSchema.optional(),
+    })
+    .refine((value) => Object.keys(value).length > 0, {
+        message: 'At least one diagram field must be updated.',
+    });

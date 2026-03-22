@@ -9,6 +9,7 @@ import {
     diagramDocumentSchema,
     type DiagramDocument,
     listProjectDiagramsQuerySchema,
+    updateDiagramSchema,
     upsertDiagramSchema,
     updateProjectSchema,
 } from '../schemas/persistence.js';
@@ -152,6 +153,17 @@ export class PersistenceService {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
         this.repository.deleteProject(projectId);
+
+        const defaultProjectId = this.repository.getConfigValue(
+            DEFAULT_PROJECT_CONFIG_KEY
+        );
+        if (defaultProjectId === projectId) {
+            const fallbackProject = this.repository.listProjects()[0];
+            this.repository.setConfigValue(
+                DEFAULT_PROJECT_CONFIG_KEY,
+                fallbackProject?.id ?? ''
+            );
+        }
     }
 
     listProjectDiagrams(projectId: string, query: unknown) {
@@ -240,6 +252,48 @@ export class PersistenceService {
                 updatedAt: document.updatedAt,
             }),
             createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+        };
+
+        this.repository.putDiagram(record);
+        return this.toDiagramResponse(record);
+    }
+
+    updateDiagram(diagramId: string, input: unknown) {
+        const existing = this.repository.getDiagram(diagramId);
+        if (!existing) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const payload = updateDiagramSchema.parse(input);
+        const nextProject = payload.projectId
+            ? this.repository.getProject(payload.projectId)
+            : this.repository.getProject(existing.projectId);
+
+        if (!nextProject) {
+            throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        const now = new Date().toISOString();
+        const nowDate = new Date(now);
+        const name = payload.name ?? existing.name;
+        const description =
+            payload.description !== undefined
+                ? (payload.description ?? null)
+                : existing.description;
+        const record: DiagramRecord = {
+            ...existing,
+            projectId: payload.projectId ?? existing.projectId,
+            ownerUserId: payload.ownerUserId ?? existing.ownerUserId,
+            name,
+            description,
+            visibility: payload.visibility ?? existing.visibility,
+            status: payload.status ?? existing.status,
+            document: this.normalizeDocument({
+                ...existing.document,
+                name,
+                updatedAt: nowDate,
+            }),
             updatedAt: now,
         };
 
