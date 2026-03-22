@@ -290,4 +290,79 @@ describe('persistence routes', () => {
 
         await app.close();
     });
+
+    it('exports and imports versioned backup payloads through the API', async () => {
+        const sourceApp = buildApp({ env: createTestEnv() });
+        const bootstrap = await sourceApp.inject({
+            method: 'GET',
+            url: '/api/app/bootstrap',
+        });
+        const defaultProjectId = bootstrap.json().defaultProject.id as string;
+
+        await sourceApp.inject({
+            method: 'PUT',
+            url: '/api/diagrams/diagram-backup-1',
+            payload: {
+                projectId: defaultProjectId,
+                description: 'Backup fixture',
+                diagram: {
+                    id: 'ignored',
+                    name: 'Backup Diagram',
+                    databaseType: 'postgresql',
+                    tables: [{ id: 'tbl-1', name: 'accounts' }],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:00:00.000Z',
+                },
+            },
+        });
+
+        const exportResponse = await sourceApp.inject({
+            method: 'POST',
+            url: '/api/backups/export',
+            payload: {
+                scope: 'projects',
+                projectIds: [defaultProjectId],
+            },
+        });
+        expect(exportResponse.statusCode).toBe(200);
+        const exportPayload = exportResponse.json() as Record<string, unknown>;
+        expect(exportPayload).toEqual(
+            expect.objectContaining({
+                format: 'chartdb-backup',
+                formatVersion: 1,
+            })
+        );
+
+        const targetApp = buildApp({ env: createTestEnv() });
+        const importResponse = await targetApp.inject({
+            method: 'POST',
+            url: '/api/backups/import',
+            payload: exportPayload,
+        });
+        expect(importResponse.statusCode).toBe(200);
+        expect(importResponse.json().import).toEqual(
+            expect.objectContaining({
+                diagramCount: 1,
+                firstDiagramId: expect.any(String),
+            })
+        );
+
+        const invalidVersionResponse = await targetApp.inject({
+            method: 'POST',
+            url: '/api/backups/import',
+            payload: {
+                ...exportPayload,
+                formatVersion: 99,
+            },
+        });
+        expect(invalidVersionResponse.statusCode).toBe(400);
+        expect(invalidVersionResponse.json()).toEqual(
+            expect.objectContaining({
+                code: 'BACKUP_VERSION_UNSUPPORTED',
+            })
+        );
+
+        await sourceApp.close();
+        await targetApp.close();
+    });
 });
