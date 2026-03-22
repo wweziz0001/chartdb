@@ -10,10 +10,77 @@ import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import type { Note } from '@/lib/domain/note';
 
+export interface SavedProject {
+    id: string;
+    name: string;
+    description: string | null;
+    ownerUserId: string | null;
+    visibility: 'private' | 'workspace' | 'public';
+    status: 'active' | 'archived' | 'deleted';
+    diagramCount: number;
+    createdAt: Date;
+    updatedAt: Date;
+    localOnly?: boolean;
+}
+
+export interface SavedDiagram {
+    id: string;
+    projectId: string;
+    ownerUserId: string | null;
+    name: string;
+    description: string | null;
+    databaseType: string;
+    databaseEdition: string | null;
+    visibility: 'private' | 'workspace' | 'public';
+    status: 'draft' | 'active' | 'archived';
+    tableCount: number;
+    createdAt: Date;
+    updatedAt: Date;
+    localOnly?: boolean;
+}
+
 export interface StorageContext {
     // Config operations
     getConfig: () => Promise<ChartDBConfig | undefined>;
     updateConfig: (config: Partial<ChartDBConfig>) => Promise<void>;
+
+    // Saved project operations
+    listProjects: () => Promise<SavedProject[]>;
+    createProject: (params: {
+        name: string;
+        description?: string | null;
+    }) => Promise<SavedProject>;
+    updateProject: (
+        projectId: string,
+        params: { name?: string; description?: string | null }
+    ) => Promise<SavedProject>;
+    deleteProject: (projectId: string) => Promise<void>;
+    listProjectDiagrams: (projectId: string) => Promise<SavedDiagram[]>;
+    getSavedDiagram: (diagramId: string) => Promise<SavedDiagram | undefined>;
+    updateSavedDiagram: (
+        diagramId: string,
+        params: {
+            name?: string;
+            description?: string | null;
+            projectId?: string;
+        }
+    ) => Promise<SavedDiagram | undefined>;
+    saveDiagram: (params: {
+        diagramId: string;
+        name?: string;
+        description?: string | null;
+        projectId?: string;
+    }) => Promise<SavedDiagram | undefined>;
+    saveDiagramAs: (params: {
+        diagramId: string;
+        name: string;
+        description?: string | null;
+        projectId?: string;
+        createProject?: {
+            name: string;
+            description?: string | null;
+        };
+    }) => Promise<Diagram | undefined>;
 
     // Diagram filter operations
     getDiagramFilter: (diagramId: string) => Promise<DiagramFilter | undefined>;
@@ -157,6 +224,15 @@ export interface StorageContext {
 export const storageInitialValue: StorageContext = {
     getConfig: emptyFn,
     updateConfig: emptyFn,
+    listProjects: emptyFn,
+    createProject: emptyFn,
+    updateProject: emptyFn,
+    deleteProject: emptyFn,
+    listProjectDiagrams: emptyFn,
+    getSavedDiagram: emptyFn,
+    updateSavedDiagram: emptyFn,
+    saveDiagram: emptyFn,
+    saveDiagramAs: emptyFn,
 
     getDiagramFilter: emptyFn,
     updateDiagramFilter: emptyFn,

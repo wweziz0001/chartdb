@@ -5,6 +5,8 @@ import type { CreateDiagramDialogProps } from '@/dialogs/create-diagram-dialog/c
 import { CreateDiagramDialog } from '@/dialogs/create-diagram-dialog/create-diagram-dialog';
 import type { OpenDiagramDialogProps } from '@/dialogs/open-diagram-dialog/open-diagram-dialog';
 import { OpenDiagramDialog } from '@/dialogs/open-diagram-dialog/open-diagram-dialog';
+import type { SaveDiagramDialogProps } from '@/dialogs/save-diagram-dialog/save-diagram-dialog';
+import { SaveDiagramDialog } from '@/dialogs/save-diagram-dialog/save-diagram-dialog';
 import type { ExportSQLDialogProps } from '@/dialogs/export-sql-dialog/export-sql-dialog';
 import { ExportSQLDialog } from '@/dialogs/export-sql-dialog/export-sql-dialog';
 import { DatabaseType } from '@/lib/domain/database-type';
@@ -47,6 +49,18 @@ export const DialogProvider: React.FC<React.PropsWithChildren> = ({
                 setOpenOpenDiagramDialog(true);
             },
             [setOpenOpenDiagramDialog]
+        );
+
+    const [openSaveDiagramDialog, setOpenSaveDiagramDialog] = useState(false);
+    const [saveDiagramDialogParams, setSaveDiagramDialogParams] =
+        useState<Omit<SaveDiagramDialogProps, 'dialog'>>();
+    const openSaveDiagramDialogHandler: DialogContext['openSaveDiagramDialog'] =
+        useCallback(
+            (props) => {
+                setSaveDiagramDialogParams(props);
+                setOpenSaveDiagramDialog(true);
+            },
+            [setOpenSaveDiagramDialog]
         );
 
     const [openCreateRelationshipDialog, setOpenCreateRelationshipDialog] =
@@ -141,6 +155,8 @@ export const DialogProvider: React.FC<React.PropsWithChildren> = ({
                 closeCreateDiagramDialog: () => setOpenNewDiagramDialog(false),
                 openOpenDiagramDialog: openOpenDiagramDialogHandler,
                 closeOpenDiagramDialog: () => setOpenOpenDiagramDialog(false),
+                openSaveDiagramDialog: openSaveDiagramDialogHandler,
+                closeSaveDiagramDialog: () => setOpenSaveDiagramDialog(false),
                 openExportSQLDialog: openExportSQLDialogHandler,
                 closeExportSQLDialog: () => setOpenExportSQLDialog(false),
                 openCreateRelationshipDialog:
@@ -173,6 +189,10 @@ export const DialogProvider: React.FC<React.PropsWithChildren> = ({
             <OpenDiagramDialog
                 dialog={{ open: openOpenDiagramDialog }}
                 {...openDiagramDialogParams}
+            />
+            <SaveDiagramDialog
+                dialog={{ open: openSaveDiagramDialog }}
+                {...saveDiagramDialogParams}
             />
             <ExportSQLDialog
                 dialog={{ open: openExportSQLDialog }}

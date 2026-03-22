@@ -17,7 +17,7 @@ export const useDiagramLoader = () => {
     const { showLoader, hideLoader } = useFullScreenLoader();
     const { openCreateDiagramDialog, openOpenDiagramDialog } = useDialog();
     const navigate = useNavigate();
-    const { listDiagrams } = useStorage();
+    const { listDiagrams, listProjects } = useStorage();
 
     const currentDiagramLoadingRef = useRef<string | undefined>(undefined);
 
@@ -55,9 +55,15 @@ export const useDiagramLoader = () => {
                     return;
                 }
             }
-            const diagrams = await listDiagrams();
+            const [localDiagrams, savedProjects] = await Promise.all([
+                listDiagrams(),
+                listProjects(),
+            ]);
+            const hasSavedDiagrams = savedProjects.some(
+                (project) => project.diagramCount > 0
+            );
 
-            if (diagrams.length > 0) {
+            if (hasSavedDiagrams || localDiagrams.length > 0) {
                 openOpenDiagramDialog({ canClose: false });
             } else {
                 openCreateDiagramDialog();
@@ -79,6 +85,7 @@ export const useDiagramLoader = () => {
         config,
         navigate,
         listDiagrams,
+        listProjects,
         loadDiagram,
         resetRedoStack,
         resetUndoStack,

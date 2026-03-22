@@ -32,15 +32,12 @@ import { useAlert } from '@/context/alert-context/alert-context';
 export interface MenuProps {}
 
 export const Menu: React.FC<MenuProps> = () => {
-    const {
-        clearDiagramData,
-        deleteDiagram,
-        updateDiagramUpdatedAt,
-        databaseType,
-    } = useChartDB();
+    const { clearDiagramData, deleteDiagram, saveDiagram, databaseType } =
+        useChartDB();
     const {
         openCreateDiagramDialog,
         openOpenDiagramDialog,
+        openSaveDiagramDialog,
         openExportSQLDialog,
         openImportDatabaseDialog,
         openExportImageDialog,
@@ -156,7 +153,7 @@ export const Menu: React.FC<MenuProps> = () => {
                         {t('menu.actions.new')}
                     </MenubarItem>
                     <MenubarItem onClick={openDiagram}>
-                        {t('menu.actions.browse')}
+                        {t('menu.actions.open_saved_project')}
                         <MenubarShortcut>
                             {
                                 keyboardShortcutsForOS[
@@ -165,7 +162,7 @@ export const Menu: React.FC<MenuProps> = () => {
                             }
                         </MenubarShortcut>
                     </MenubarItem>
-                    <MenubarItem onClick={updateDiagramUpdatedAt}>
+                    <MenubarItem onClick={saveDiagram}>
                         {t('menu.actions.save')}
                         <MenubarShortcut>
                             {
@@ -174,6 +171,9 @@ export const Menu: React.FC<MenuProps> = () => {
                                 ].keyCombinationLabel
                             }
                         </MenubarShortcut>
+                    </MenubarItem>
+                    <MenubarItem onClick={() => openSaveDiagramDialog()}>
+                        {t('menu.actions.save_as')}
                     </MenubarItem>
                     <MenubarSeparator />
                     <MenubarSub>

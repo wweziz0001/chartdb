@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -7,53 +7,26 @@ import {
     DropdownMenuTrigger,
 } from '@/components/dropdown-menu/dropdown-menu';
 import { Button } from '@/components/button/button';
-import { Ellipsis, Layers2, SquareArrowOutUpRight, Trash2 } from 'lucide-react';
-import { useChartDB } from '@/hooks/use-chartdb';
-import type { Diagram } from '@/lib/domain';
-import { useStorage } from '@/hooks/use-storage';
-import { cloneDiagram } from '@/lib/clone';
+import {
+    Ellipsis,
+    PencilLine,
+    SquareArrowOutUpRight,
+    Trash2,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 interface DiagramRowActionsMenuProps {
-    diagram: Diagram;
     onOpen: () => void;
-    refetch: () => void;
-    numberOfDiagrams: number;
+    onRename: () => void;
+    onDelete: () => void;
 }
 
 export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
-    diagram,
     onOpen,
-    refetch,
-    numberOfDiagrams,
+    onRename,
+    onDelete,
 }) => {
-    const { diagramId } = useChartDB();
-    const { deleteDiagram, addDiagram } = useStorage();
     const { t } = useTranslation();
-
-    const onDelete = useCallback(async () => {
-        deleteDiagram(diagram.id);
-        refetch();
-
-        if (diagram.id === diagramId || numberOfDiagrams <= 1) {
-            window.location.href = '/';
-        }
-    }, [deleteDiagram, diagram.id, diagramId, refetch, numberOfDiagrams]);
-
-    const onDuplicate = useCallback(async () => {
-        const duplicatedDiagram = cloneDiagram(diagram);
-
-        const diagramToAdd = duplicatedDiagram.diagram;
-
-        if (!diagramToAdd) {
-            return;
-        }
-
-        diagramToAdd.name = `${diagram.name} (Copy)`;
-
-        addDiagram({ diagram: diagramToAdd });
-        refetch();
-    }, [addDiagram, refetch, diagram]);
 
     return (
         <DropdownMenu>
@@ -77,11 +50,11 @@ export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
-                    onClick={onDuplicate}
+                    onClick={onRename}
                     className="flex justify-between gap-4"
                 >
-                    {t('open_diagram_dialog.diagram_actions.duplicate')}
-                    <Layers2 className="size-3.5" />
+                    {t('open_diagram_dialog.diagram_actions.rename')}
+                    <PencilLine className="size-3.5" />
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />

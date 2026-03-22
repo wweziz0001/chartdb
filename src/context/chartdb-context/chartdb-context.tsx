@@ -93,6 +93,7 @@ export interface ChartDBContext {
     loadDiagram: (diagramId: string) => Promise<Diagram | undefined>;
     loadDiagramFromData: (diagram: Diagram) => void;
     updateDiagramUpdatedAt: () => Promise<void>;
+    saveDiagram: () => Promise<void>;
     clearDiagramData: () => Promise<void>;
     deleteDiagram: () => Promise<void>;
     updateDiagramData: (
@@ -355,6 +356,7 @@ export const chartDBContext = createContext<ChartDBContext>({
     updateDiagramId: emptyFn,
     updateDiagramName: emptyFn,
     updateDiagramUpdatedAt: emptyFn,
+    saveDiagram: emptyFn,
     loadDiagram: emptyFn,
     loadDiagramFromData: emptyFn,
     clearDiagramData: emptyFn,
