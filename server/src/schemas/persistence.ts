@@ -25,6 +25,7 @@ const optionalDescriptionSchema = z
     .max(500)
     .nullable()
     .optional();
+const searchQuerySchema = z.string().trim().max(120).optional();
 
 export const diagramDocumentSchema = z.object({
     id: z.string().min(1),
@@ -80,7 +81,7 @@ export const updateProjectSchema = z
 
 export const listProjectsQuerySchema = z
     .object({
-        search: z.string().trim().optional(),
+        search: searchQuerySchema,
         collectionId: z.string().trim().min(1).optional(),
         unassigned: z.coerce.boolean().optional().default(false),
     })
@@ -89,7 +90,7 @@ export const listProjectsQuerySchema = z
     });
 
 export const listProjectDiagramsQuerySchema = z.object({
-    search: z.string().trim().optional(),
+    search: searchQuerySchema,
     view: z.enum(['summary', 'full']).optional().default('summary'),
 });
 

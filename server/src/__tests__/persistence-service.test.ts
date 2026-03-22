@@ -156,6 +156,146 @@ describe('persistence foundation', () => {
         repository.close();
     });
 
+    it('searches projects by exact term, partial matches, and combined filters', () => {
+        const { repository, service } = createService();
+        service.bootstrap();
+        const collection = service.createCollection({
+            name: 'Analytics Workspace',
+            description: 'Revenue reporting and finance diagrams',
+        });
+        const project = service.createProject({
+            name: 'Revenue Reporting',
+            description: 'Quarterly finance rollups',
+            collectionId: collection.id,
+        });
+        const unassignedProject = service.createProject({
+            name: 'Operations Runbook',
+            description: 'Incident response flows',
+        });
+
+        service.upsertDiagram('diagram-1', {
+            projectId: project.id,
+            description: 'Revenue data model',
+            diagram: {
+                id: 'ignored',
+                name: 'Customer Revenue Model',
+                databaseType: 'postgresql',
+                databaseEdition: '16',
+                tables: [
+                    {
+                        id: 'tbl-1',
+                        name: 'accounts',
+                        schema: 'finance',
+                    },
+                ],
+                createdAt: '2026-03-22T12:00:00.000Z',
+                updatedAt: '2026-03-22T12:00:00.000Z',
+            },
+        });
+
+        expect(
+            service
+                .listProjects({ search: 'Revenue Reporting' })
+                .map((item) => item.id)
+        ).toContain(project.id);
+        expect(
+            service.listProjects({ search: 'analytic' }).map((item) => item.id)
+        ).toContain(project.id);
+        expect(
+            service.listProjects({ search: 'accounts' }).map((item) => item.id)
+        ).toContain(project.id);
+        expect(
+            service.listProjects({
+                search: 'finance',
+                collectionId: collection.id,
+            })
+        ).toEqual([
+            expect.objectContaining({
+                id: project.id,
+            }),
+        ]);
+        expect(
+            service
+                .listProjects({ search: 'operations', unassigned: true })
+                .map((item) => item.id)
+        ).toEqual([unassignedProject.id]);
+        expect(service.listProjects({ search: 'does-not-exist' })).toHaveLength(
+            0
+        );
+
+        repository.close();
+    });
+
+    it('searches project diagrams by diagram metadata and project context', () => {
+        const { repository, service } = createService();
+        service.bootstrap();
+        const collection = service.createCollection({
+            name: 'Finance Workspace',
+        });
+        const project = service.createProject({
+            name: 'Revenue Reporting',
+            collectionId: collection.id,
+        });
+
+        service.upsertDiagram('diagram-1', {
+            projectId: project.id,
+            description: 'Primary reporting model',
+            diagram: {
+                id: 'ignored',
+                name: 'Revenue Diagram',
+                databaseType: 'postgresql',
+                databaseEdition: '16',
+                tables: [
+                    {
+                        id: 'tbl-1',
+                        name: 'accounts',
+                        schemaName: 'finance',
+                    },
+                ],
+                createdAt: '2026-03-22T12:00:00.000Z',
+                updatedAt: '2026-03-22T12:00:00.000Z',
+            },
+        });
+        service.upsertDiagram('diagram-2', {
+            projectId: project.id,
+            description: 'Reference model',
+            diagram: {
+                id: 'ignored',
+                name: 'Ledger Diagram',
+                databaseType: 'mysql',
+                tables: [
+                    {
+                        id: 'tbl-2',
+                        name: 'entries',
+                        schema: 'finance',
+                    },
+                ],
+                createdAt: '2026-03-22T13:00:00.000Z',
+                updatedAt: '2026-03-22T13:00:00.000Z',
+            },
+        });
+
+        expect(
+            service.listProjectDiagrams(project.id, {
+                search: 'Revenue Diagram',
+            })
+        ).toHaveLength(1);
+        expect(
+            service.listProjectDiagrams(project.id, { search: 'account' })
+        ).toHaveLength(1);
+        expect(
+            service.listProjectDiagrams(project.id, { search: 'finance' })
+        ).toHaveLength(2);
+        expect(
+            service.listProjectDiagrams(project.id, { search: 'workspace' })
+        ).toHaveLength(2);
+        expect(
+            service.listProjectDiagrams(project.id, { search: 'warehouse' })
+        ).toHaveLength(0);
+
+        repository.close();
+    });
+
     it('re-points the default project after deleting the current default', () => {
         const { repository, service } = createService();
         const bootstrap = service.bootstrap();

@@ -392,6 +392,23 @@ export class AppRepository {
         this.db.prepare(`DELETE FROM app_projects WHERE id = ?`).run(id);
     }
 
+    listDiagrams(): DiagramRecord[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT
+                    id, project_id, owner_user_id, name, description,
+                    database_type, database_edition, visibility, status,
+                    document_json, created_at, updated_at
+                FROM app_diagrams
+                ORDER BY updated_at DESC, created_at DESC
+                `
+            )
+            .all() as Array<Record<string, unknown>>;
+
+        return rows.map((row) => this.mapDiagram(row));
+    }
+
     listProjectDiagrams(projectId: string): DiagramRecord[] {
         const rows = this.db
             .prepare(

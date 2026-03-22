@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+    useCallback,
+    useDeferredValue,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import { Button } from '@/components/button/button';
 import { DiagramIcon } from '@/components/diagram-icon/diagram-icon';
 import {
@@ -26,6 +33,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/table/table';
+import { Input } from '@/components/input/input';
 import { useAlert } from '@/context/alert-context/alert-context';
 import type {
     SavedCollection,
@@ -46,6 +54,22 @@ import { DiagramRowActionsMenu } from './diagram-row-actions-menu/diagram-row-ac
 
 const ALL_COLLECTION_VALUE = '__all__';
 const UNASSIGNED_COLLECTION_VALUE = '__unassigned__';
+
+const normalizeSearchTerm = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    return normalized.length > 0 ? normalized : undefined;
+};
+
+const matchesSearch = (
+    values: Array<string | null | undefined>,
+    searchTerm?: string
+) => {
+    if (!searchTerm) {
+        return true;
+    }
+
+    return values.some((value) => value?.toLowerCase().includes(searchTerm));
+};
 
 export interface OpenDiagramDialogProps extends BaseDialogProps {
     canClose?: boolean;
@@ -85,6 +109,13 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
     const [selectedDiagramId, setSelectedDiagramId] = useState<
         string | undefined
     >();
+    const [searchTerm, setSearchTerm] = useState('');
+    const lastAppliedSearchTermRef = useRef<string | undefined>();
+    const deferredSearchInput = useDeferredValue(searchTerm);
+    const normalizedSearchTerm = useMemo(
+        () => normalizeSearchTerm(deferredSearchInput),
+        [deferredSearchInput]
+    );
 
     const selectedCollection = useMemo(
         () =>
@@ -138,19 +169,78 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             projects.filter((project) => project.collectionId === null).length,
         [projects]
     );
+    const projectCountByCollectionId = useMemo(() => {
+        return projects.reduce((counts, project) => {
+            if (project.collectionId) {
+                counts.set(
+                    project.collectionId,
+                    (counts.get(project.collectionId) ?? 0) + 1
+                );
+            }
+            return counts;
+        }, new Map<string, number>());
+    }, [projects]);
+    const visibleCollections = useMemo(() => {
+        if (!normalizedSearchTerm) {
+            return collections;
+        }
 
-    const fetchLibrary = useCallback(async () => {
-        const [nextCollections, nextProjects] = await Promise.all([
-            listCollections(),
-            listProjects(),
-        ]);
-        setCollections(nextCollections);
-        setProjects(nextProjects);
-    }, [listCollections, listProjects]);
+        return collections.filter(
+            (collection) =>
+                collection.id === selectedCollectionId ||
+                matchesSearch(
+                    [collection.name, collection.description],
+                    normalizedSearchTerm
+                ) ||
+                (projectCountByCollectionId.get(collection.id) ?? 0) > 0
+        );
+    }, [
+        collections,
+        normalizedSearchTerm,
+        projectCountByCollectionId,
+        selectedCollectionId,
+    ]);
+
+    const fetchLibrary = useCallback(
+        async (nextSearchTerm?: string) => {
+            const [nextCollections, nextProjects] = await Promise.all([
+                listCollections(),
+                listProjects({ search: nextSearchTerm }),
+            ]);
+            setCollections(nextCollections);
+            setProjects(nextProjects);
+        },
+        [listCollections, listProjects]
+    );
+
+    const fetchProjects = useCallback(
+        async (nextSearchTerm?: string) => {
+            const nextProjects = await listProjects({ search: nextSearchTerm });
+            setProjects(nextProjects);
+        },
+        [listProjects]
+    );
 
     const fetchProjectDiagrams = useCallback(
-        async (projectId: string) => {
-            const nextDiagrams = await listProjectDiagrams(projectId);
+        async (projectId: string, nextSearchTerm?: string) => {
+            const project = projects.find((item) => item.id === projectId);
+            const collection = project?.collectionId
+                ? collections.find((item) => item.id === project.collectionId)
+                : undefined;
+            const shouldShowAllProjectDiagrams = matchesSearch(
+                [
+                    project?.name,
+                    project?.description,
+                    collection?.name,
+                    collection?.description,
+                ],
+                nextSearchTerm
+            );
+            const nextDiagrams = await listProjectDiagrams(projectId, {
+                search: shouldShowAllProjectDiagrams
+                    ? undefined
+                    : nextSearchTerm,
+            });
             setDiagrams(nextDiagrams);
             setSelectedDiagramId((currentDiagramSelection) => {
                 if (
@@ -165,7 +255,7 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                 return nextDiagrams[0]?.id;
             });
         },
-        [listProjectDiagrams]
+        [collections, listProjectDiagrams, projects]
     );
 
     useEffect(() => {
@@ -173,10 +263,30 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             return;
         }
 
+        setSearchTerm('');
+        lastAppliedSearchTermRef.current = undefined;
         setDiagrams([]);
         setSelectedDiagramId(undefined);
         void fetchLibrary();
     }, [dialog.open, fetchLibrary]);
+
+    useEffect(() => {
+        if (!dialog.open) {
+            return;
+        }
+
+        if (lastAppliedSearchTermRef.current === normalizedSearchTerm) {
+            return;
+        }
+
+        lastAppliedSearchTermRef.current = normalizedSearchTerm;
+        if (normalizedSearchTerm) {
+            void fetchProjects(normalizedSearchTerm);
+            return;
+        }
+
+        void fetchLibrary();
+    }, [dialog.open, fetchLibrary, fetchProjects, normalizedSearchTerm]);
 
     useEffect(() => {
         if (!dialog.open) {
@@ -204,8 +314,13 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             return;
         }
 
-        void fetchProjectDiagrams(selectedProjectId);
-    }, [dialog.open, fetchProjectDiagrams, selectedProjectId]);
+        void fetchProjectDiagrams(selectedProjectId, normalizedSearchTerm);
+    }, [
+        dialog.open,
+        fetchProjectDiagrams,
+        normalizedSearchTerm,
+        selectedProjectId,
+    ]);
 
     const openDiagram = useCallback(
         (diagramId: string) => {
@@ -244,11 +359,12 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             name,
             description,
         });
-        await fetchLibrary();
+        await fetchLibrary(normalizedSearchTerm);
         setSelectedCollectionId(collection.id);
     }, [
         createCollection,
         fetchLibrary,
+        normalizedSearchTerm,
         promptForDescription,
         promptForName,
         t,
@@ -276,9 +392,10 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             name,
             description,
         });
-        await fetchLibrary();
+        await fetchLibrary(normalizedSearchTerm);
     }, [
         fetchLibrary,
+        normalizedSearchTerm,
         promptForDescription,
         promptForName,
         selectedCollection,
@@ -304,10 +421,17 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             onAction: async () => {
                 await deleteCollection(selectedCollection.id);
                 setSelectedCollectionId(ALL_COLLECTION_VALUE);
-                await fetchLibrary();
+                await fetchLibrary(normalizedSearchTerm);
             },
         });
-    }, [deleteCollection, fetchLibrary, selectedCollection, showAlert, t]);
+    }, [
+        deleteCollection,
+        fetchLibrary,
+        normalizedSearchTerm,
+        selectedCollection,
+        showAlert,
+        t,
+    ]);
 
     const handleCreateProject = useCallback(async () => {
         const name = promptForName(
@@ -329,11 +453,12 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                     ? null
                     : selectedCollectionId,
         });
-        await fetchLibrary();
+        await fetchLibrary(normalizedSearchTerm);
         setSelectedProjectId(project.id);
     }, [
         createProject,
         fetchLibrary,
+        normalizedSearchTerm,
         promptForDescription,
         promptForName,
         selectedCollectionId,
@@ -362,9 +487,10 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             name,
             description,
         });
-        await fetchLibrary();
+        await fetchLibrary(normalizedSearchTerm);
     }, [
         fetchLibrary,
+        normalizedSearchTerm,
         promptForDescription,
         promptForName,
         selectedProject,
@@ -384,9 +510,9 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                         ? null
                         : nextCollectionValue,
             });
-            await fetchLibrary();
+            await fetchLibrary(normalizedSearchTerm);
         },
-        [fetchLibrary, selectedProject, updateProject]
+        [fetchLibrary, normalizedSearchTerm, selectedProject, updateProject]
     );
 
     const handleDeleteProject = useCallback(() => {
@@ -416,7 +542,7 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                 ) {
                     navigate('/');
                 }
-                await fetchLibrary();
+                await fetchLibrary(normalizedSearchTerm);
             },
         });
     }, [
@@ -425,6 +551,7 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
         fetchLibrary,
         listProjectDiagrams,
         navigate,
+        normalizedSearchTerm,
         selectedProject,
         showAlert,
         t,
@@ -450,14 +577,15 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                 await loadDiagram(diagram.id);
             }
 
-            await fetchProjectDiagrams(diagram.projectId);
-            await fetchLibrary();
+            await fetchProjectDiagrams(diagram.projectId, normalizedSearchTerm);
+            await fetchLibrary(normalizedSearchTerm);
         },
         [
             currentDiagramId,
             fetchLibrary,
             fetchProjectDiagrams,
             loadDiagram,
+            normalizedSearchTerm,
             promptForName,
             t,
             updateSavedDiagram,
@@ -476,8 +604,11 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                     if (diagram.id === currentDiagramId) {
                         navigate('/');
                     }
-                    await fetchLibrary();
-                    await fetchProjectDiagrams(diagram.projectId);
+                    await fetchLibrary(normalizedSearchTerm);
+                    await fetchProjectDiagrams(
+                        diagram.projectId,
+                        normalizedSearchTerm
+                    );
                 },
             });
         },
@@ -487,6 +618,7 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
             fetchLibrary,
             fetchProjectDiagrams,
             navigate,
+            normalizedSearchTerm,
             showAlert,
             t,
         ]
@@ -524,435 +656,497 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                     </DialogDescription>
                 </DialogHeader>
                 <DialogInternalContent className="pr-2">
-                    <div className="grid h-full gap-4 md:grid-cols-[220px_240px_minmax(0,1fr)]">
-                        <div className="flex min-h-0 flex-col gap-3 rounded-lg border p-3">
-                            <div className="flex items-center justify-between gap-2">
-                                <h2 className="text-sm font-semibold">
-                                    {t('open_diagram_dialog.collections')}
-                                </h2>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={handleCreateCollection}
-                                >
-                                    {t(
-                                        'open_diagram_dialog.collection_actions.create'
-                                    )}
-                                </Button>
-                            </div>
-
-                            <div className="flex gap-2">
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    disabled={!selectedCollection}
-                                    onClick={() =>
-                                        void handleRenameCollection()
-                                    }
-                                >
-                                    {t(
-                                        'open_diagram_dialog.collection_actions.rename'
-                                    )}
-                                </Button>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    disabled={!selectedCollection}
-                                    onClick={handleDeleteCollection}
-                                >
-                                    {t(
-                                        'open_diagram_dialog.collection_actions.delete'
-                                    )}
-                                </Button>
-                            </div>
-
-                            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
-                                <button
-                                    type="button"
-                                    className={cn(
-                                        'rounded-md border px-3 py-2 text-left transition-colors',
-                                        selectedCollectionId ===
-                                            ALL_COLLECTION_VALUE
-                                            ? 'border-foreground/20 bg-accent'
-                                            : 'hover:bg-accent/50'
-                                    )}
-                                    onClick={() =>
-                                        setSelectedCollectionId(
-                                            ALL_COLLECTION_VALUE
-                                        )
-                                    }
-                                >
-                                    <div className="truncate text-sm font-medium">
-                                        {t('open_diagram_dialog.all_projects')}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.collection_count',
-                                            {
-                                                count: totalProjectCount,
-                                            }
-                                        )}
-                                    </div>
-                                </button>
-                                <button
-                                    type="button"
-                                    className={cn(
-                                        'rounded-md border px-3 py-2 text-left transition-colors',
-                                        selectedCollectionId ===
-                                            UNASSIGNED_COLLECTION_VALUE
-                                            ? 'border-foreground/20 bg-accent'
-                                            : 'hover:bg-accent/50'
-                                    )}
-                                    onClick={() =>
-                                        setSelectedCollectionId(
-                                            UNASSIGNED_COLLECTION_VALUE
-                                        )
-                                    }
-                                >
-                                    <div className="truncate text-sm font-medium">
-                                        {t(
-                                            'open_diagram_dialog.unassigned_collection'
-                                        )}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.collection_count',
-                                            {
-                                                count: unassignedProjectCount,
-                                            }
-                                        )}
-                                    </div>
-                                </button>
-
-                                {collections.length === 0 ? (
-                                    <p className="px-1 pt-2 text-sm text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.empty_collections'
-                                        )}
-                                    </p>
-                                ) : (
-                                    collections.map((collection) => (
-                                        <button
-                                            key={collection.id}
-                                            type="button"
-                                            className={cn(
-                                                'rounded-md border px-3 py-2 text-left transition-colors',
-                                                selectedCollectionId ===
-                                                    collection.id
-                                                    ? 'border-foreground/20 bg-accent'
-                                                    : 'hover:bg-accent/50'
-                                            )}
-                                            onClick={() =>
-                                                setSelectedCollectionId(
-                                                    collection.id
-                                                )
-                                            }
-                                        >
-                                            <div className="truncate text-sm font-medium">
-                                                {collection.name}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                {t(
-                                                    'open_diagram_dialog.collection_count',
-                                                    {
-                                                        count: collection.projectCount,
-                                                    }
-                                                )}
-                                            </div>
-                                        </button>
-                                    ))
+                    <div className="flex h-full flex-col gap-4">
+                        <div className="space-y-2">
+                            <label
+                                htmlFor="open-diagram-search"
+                                className="text-xs font-medium text-muted-foreground"
+                            >
+                                {t('open_diagram_dialog.search_label')}
+                            </label>
+                            <Input
+                                id="open-diagram-search"
+                                value={searchTerm}
+                                onChange={(event) =>
+                                    setSearchTerm(event.target.value)
+                                }
+                                placeholder={t(
+                                    'open_diagram_dialog.search_placeholder'
                                 )}
-                            </div>
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {t('open_diagram_dialog.search_help')}
+                            </p>
                         </div>
 
-                        <div className="flex min-h-0 flex-col gap-3 rounded-lg border p-3">
-                            <div className="flex items-center justify-between gap-2">
-                                <div>
+                        <div className="grid h-full gap-4 md:grid-cols-[220px_240px_minmax(0,1fr)]">
+                            <div className="flex min-h-0 flex-col gap-3 rounded-lg border p-3">
+                                <div className="flex items-center justify-between gap-2">
                                     <h2 className="text-sm font-semibold">
-                                        {projectSectionTitle}
+                                        {t('open_diagram_dialog.collections')}
                                     </h2>
-                                    <p className="text-xs text-muted-foreground">
-                                        {projectSectionDescription}
-                                    </p>
-                                </div>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={handleCreateProject}
-                                >
-                                    {t(
-                                        'open_diagram_dialog.project_actions.create'
-                                    )}
-                                </Button>
-                            </div>
-
-                            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
-                                {filteredProjects.length === 0 ? (
-                                    <p className="text-sm text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.empty_projects'
-                                        )}
-                                    </p>
-                                ) : (
-                                    filteredProjects.map((project) => (
-                                        <button
-                                            key={project.id}
-                                            type="button"
-                                            className={cn(
-                                                'rounded-md border px-3 py-2 text-left transition-colors',
-                                                selectedProjectId === project.id
-                                                    ? 'border-foreground/20 bg-accent'
-                                                    : 'hover:bg-accent/50'
-                                            )}
-                                            onClick={() =>
-                                                setSelectedProjectId(project.id)
-                                            }
-                                        >
-                                            <div className="truncate text-sm font-medium">
-                                                {project.name}
-                                            </div>
-                                            <div className="mt-1 text-xs text-muted-foreground">
-                                                {project.description ??
-                                                    (project.collectionId
-                                                        ? collectionNameById.get(
-                                                              project.collectionId
-                                                          )
-                                                        : t(
-                                                              'open_diagram_dialog.unassigned_collection'
-                                                          ))}
-                                            </div>
-                                            <div className="mt-1 text-xs text-muted-foreground">
-                                                {t(
-                                                    'open_diagram_dialog.project_count',
-                                                    {
-                                                        count: project.diagramCount,
-                                                    }
-                                                )}
-                                            </div>
-                                        </button>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="flex min-h-0 flex-col rounded-lg border p-3">
-                            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <h2 className="truncate text-sm font-semibold">
-                                        {selectedProject?.name ??
-                                            t(
-                                                'open_diagram_dialog.no_project_selected'
-                                            )}
-                                    </h2>
-                                    {selectedProject?.description ? (
-                                        <p className="text-sm text-muted-foreground">
-                                            {selectedProject.description}
-                                        </p>
-                                    ) : null}
-                                </div>
-
-                                <div className="flex flex-wrap gap-2">
                                     <Button
                                         type="button"
                                         size="sm"
                                         variant="secondary"
-                                        disabled={
-                                            !selectedProject ||
-                                            selectedProject.localOnly
-                                        }
+                                        onClick={handleCreateCollection}
+                                    >
+                                        {t(
+                                            'open_diagram_dialog.collection_actions.create'
+                                        )}
+                                    </Button>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={!selectedCollection}
                                         onClick={() =>
-                                            void handleRenameProject()
+                                            void handleRenameCollection()
                                         }
                                     >
                                         {t(
-                                            'open_diagram_dialog.project_actions.rename'
+                                            'open_diagram_dialog.collection_actions.rename'
                                         )}
                                     </Button>
                                     <Button
                                         type="button"
                                         size="sm"
                                         variant="secondary"
-                                        disabled={
-                                            !selectedProject ||
-                                            selectedProject.localOnly
-                                        }
-                                        onClick={handleDeleteProject}
+                                        disabled={!selectedCollection}
+                                        onClick={handleDeleteCollection}
                                     >
                                         {t(
-                                            'open_diagram_dialog.project_actions.delete'
+                                            'open_diagram_dialog.collection_actions.delete'
                                         )}
                                     </Button>
                                 </div>
-                            </div>
 
-                            {selectedProject && !selectedProject.localOnly ? (
-                                <div className="mb-3 flex flex-col gap-2 sm:max-w-xs">
-                                    <span className="text-xs font-medium text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.project_fields.collection'
+                                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
+                                    <button
+                                        type="button"
+                                        className={cn(
+                                            'rounded-md border px-3 py-2 text-left transition-colors',
+                                            selectedCollectionId ===
+                                                ALL_COLLECTION_VALUE
+                                                ? 'border-foreground/20 bg-accent'
+                                                : 'hover:bg-accent/50'
                                         )}
-                                    </span>
-                                    <Select
-                                        value={
-                                            selectedProject.collectionId ??
-                                            UNASSIGNED_COLLECTION_VALUE
+                                        onClick={() =>
+                                            setSelectedCollectionId(
+                                                ALL_COLLECTION_VALUE
+                                            )
                                         }
-                                        onValueChange={(value) => {
-                                            void handleMoveProject(value);
-                                        }}
                                     >
-                                        <SelectTrigger>
-                                            <SelectValue
-                                                placeholder={t(
-                                                    'open_diagram_dialog.project_fields.collection_placeholder'
+                                        <div className="truncate text-sm font-medium">
+                                            {t(
+                                                'open_diagram_dialog.all_projects'
+                                            )}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {t(
+                                                'open_diagram_dialog.collection_count',
+                                                {
+                                                    count: totalProjectCount,
+                                                }
+                                            )}
+                                        </div>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={cn(
+                                            'rounded-md border px-3 py-2 text-left transition-colors',
+                                            selectedCollectionId ===
+                                                UNASSIGNED_COLLECTION_VALUE
+                                                ? 'border-foreground/20 bg-accent'
+                                                : 'hover:bg-accent/50'
+                                        )}
+                                        onClick={() =>
+                                            setSelectedCollectionId(
+                                                UNASSIGNED_COLLECTION_VALUE
+                                            )
+                                        }
+                                    >
+                                        <div className="truncate text-sm font-medium">
+                                            {t(
+                                                'open_diagram_dialog.unassigned_collection'
+                                            )}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {t(
+                                                'open_diagram_dialog.collection_count',
+                                                {
+                                                    count: unassignedProjectCount,
+                                                }
+                                            )}
+                                        </div>
+                                    </button>
+
+                                    {visibleCollections.length === 0 ? (
+                                        <p className="px-1 pt-2 text-sm text-muted-foreground">
+                                            {normalizedSearchTerm
+                                                ? t(
+                                                      'open_diagram_dialog.empty_search_collections',
+                                                      {
+                                                          search: deferredSearchInput.trim(),
+                                                      }
+                                                  )
+                                                : t(
+                                                      'open_diagram_dialog.empty_collections'
+                                                  )}
+                                        </p>
+                                    ) : (
+                                        visibleCollections.map((collection) => (
+                                            <button
+                                                key={collection.id}
+                                                type="button"
+                                                className={cn(
+                                                    'rounded-md border px-3 py-2 text-left transition-colors',
+                                                    selectedCollectionId ===
+                                                        collection.id
+                                                        ? 'border-foreground/20 bg-accent'
+                                                        : 'hover:bg-accent/50'
                                                 )}
-                                            />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem
-                                                value={
-                                                    UNASSIGNED_COLLECTION_VALUE
+                                                onClick={() =>
+                                                    setSelectedCollectionId(
+                                                        collection.id
+                                                    )
                                                 }
                                             >
-                                                {t(
-                                                    'open_diagram_dialog.unassigned_collection'
-                                                )}
-                                            </SelectItem>
-                                            {collections.map((collection) => (
-                                                <SelectItem
-                                                    key={collection.id}
-                                                    value={collection.id}
-                                                >
+                                                <div className="truncate text-sm font-medium">
                                                     {collection.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    {t(
+                                                        'open_diagram_dialog.collection_count',
+                                                        {
+                                                            count:
+                                                                projectCountByCollectionId.get(
+                                                                    collection.id
+                                                                ) ??
+                                                                collection.projectCount,
+                                                        }
+                                                    )}
+                                                </div>
+                                            </button>
+                                        ))
+                                    )}
                                 </div>
-                            ) : null}
+                            </div>
 
-                            <div className="min-h-0 flex-1 overflow-auto">
-                                {selectedProject ? (
-                                    <Table>
-                                        <TableHeader className="sticky top-0 bg-background">
-                                            <TableRow>
-                                                <TableHead />
-                                                <TableHead>
+                            <div className="flex min-h-0 flex-col gap-3 rounded-lg border p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div>
+                                        <h2 className="text-sm font-semibold">
+                                            {projectSectionTitle}
+                                        </h2>
+                                        <p className="text-xs text-muted-foreground">
+                                            {projectSectionDescription}
+                                        </p>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={handleCreateProject}
+                                    >
+                                        {t(
+                                            'open_diagram_dialog.project_actions.create'
+                                        )}
+                                    </Button>
+                                </div>
+
+                                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
+                                    {filteredProjects.length === 0 ? (
+                                        <p className="text-sm text-muted-foreground">
+                                            {normalizedSearchTerm
+                                                ? t(
+                                                      'open_diagram_dialog.empty_search_projects',
+                                                      {
+                                                          search: deferredSearchInput.trim(),
+                                                      }
+                                                  )
+                                                : t(
+                                                      'open_diagram_dialog.empty_projects'
+                                                  )}
+                                        </p>
+                                    ) : (
+                                        filteredProjects.map((project) => (
+                                            <button
+                                                key={project.id}
+                                                type="button"
+                                                className={cn(
+                                                    'rounded-md border px-3 py-2 text-left transition-colors',
+                                                    selectedProjectId ===
+                                                        project.id
+                                                        ? 'border-foreground/20 bg-accent'
+                                                        : 'hover:bg-accent/50'
+                                                )}
+                                                onClick={() =>
+                                                    setSelectedProjectId(
+                                                        project.id
+                                                    )
+                                                }
+                                            >
+                                                <div className="truncate text-sm font-medium">
+                                                    {project.name}
+                                                </div>
+                                                <div className="mt-1 text-xs text-muted-foreground">
+                                                    {project.description ??
+                                                        (project.collectionId
+                                                            ? collectionNameById.get(
+                                                                  project.collectionId
+                                                              )
+                                                            : t(
+                                                                  'open_diagram_dialog.unassigned_collection'
+                                                              ))}
+                                                </div>
+                                                <div className="mt-1 text-xs text-muted-foreground">
                                                     {t(
-                                                        'open_diagram_dialog.table_columns.name'
+                                                        'open_diagram_dialog.project_count',
+                                                        {
+                                                            count: project.diagramCount,
+                                                        }
                                                     )}
-                                                </TableHead>
-                                                <TableHead className="hidden sm:table-cell">
-                                                    {t(
-                                                        'open_diagram_dialog.table_columns.created_at'
+                                                </div>
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex min-h-0 flex-col rounded-lg border p-3">
+                                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <h2 className="truncate text-sm font-semibold">
+                                            {selectedProject?.name ??
+                                                t(
+                                                    'open_diagram_dialog.no_project_selected'
+                                                )}
+                                        </h2>
+                                        {selectedProject?.description ? (
+                                            <p className="text-sm text-muted-foreground">
+                                                {selectedProject.description}
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            disabled={
+                                                !selectedProject ||
+                                                selectedProject.localOnly
+                                            }
+                                            onClick={() =>
+                                                void handleRenameProject()
+                                            }
+                                        >
+                                            {t(
+                                                'open_diagram_dialog.project_actions.rename'
+                                            )}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            disabled={
+                                                !selectedProject ||
+                                                selectedProject.localOnly
+                                            }
+                                            onClick={handleDeleteProject}
+                                        >
+                                            {t(
+                                                'open_diagram_dialog.project_actions.delete'
+                                            )}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {selectedProject &&
+                                !selectedProject.localOnly ? (
+                                    <div className="mb-3 flex flex-col gap-2 sm:max-w-xs">
+                                        <span className="text-xs font-medium text-muted-foreground">
+                                            {t(
+                                                'open_diagram_dialog.project_fields.collection'
+                                            )}
+                                        </span>
+                                        <Select
+                                            value={
+                                                selectedProject.collectionId ??
+                                                UNASSIGNED_COLLECTION_VALUE
+                                            }
+                                            onValueChange={(value) => {
+                                                void handleMoveProject(value);
+                                            }}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue
+                                                    placeholder={t(
+                                                        'open_diagram_dialog.project_fields.collection_placeholder'
                                                     )}
-                                                </TableHead>
-                                                <TableHead>
-                                                    {t(
-                                                        'open_diagram_dialog.table_columns.last_modified'
-                                                    )}
-                                                </TableHead>
-                                                <TableHead className="text-center">
-                                                    {t(
-                                                        'open_diagram_dialog.table_columns.tables_count'
-                                                    )}
-                                                </TableHead>
-                                                <TableHead />
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {diagrams.map((diagram) => (
-                                                <TableRow
-                                                    key={diagram.id}
-                                                    data-state={
-                                                        selectedDiagramId ===
-                                                        diagram.id
-                                                            ? 'selected'
-                                                            : undefined
+                                                />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem
+                                                    value={
+                                                        UNASSIGNED_COLLECTION_VALUE
                                                     }
-                                                    className="cursor-pointer"
-                                                    onClick={() =>
-                                                        setSelectedDiagramId(
-                                                            diagram.id
-                                                        )
-                                                    }
-                                                    onDoubleClick={() => {
-                                                        openDiagram(diagram.id);
-                                                        closeOpenDiagramDialog();
-                                                    }}
                                                 >
-                                                    <TableCell>
-                                                        <div className="flex justify-center">
-                                                            <DiagramIcon
-                                                                databaseType={
-                                                                    diagram.databaseType as DatabaseType
+                                                    {t(
+                                                        'open_diagram_dialog.unassigned_collection'
+                                                    )}
+                                                </SelectItem>
+                                                {collections.map(
+                                                    (collection) => (
+                                                        <SelectItem
+                                                            key={collection.id}
+                                                            value={
+                                                                collection.id
+                                                            }
+                                                        >
+                                                            {collection.name}
+                                                        </SelectItem>
+                                                    )
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                ) : null}
+
+                                <div className="min-h-0 flex-1 overflow-auto">
+                                    {selectedProject ? (
+                                        <Table>
+                                            <TableHeader className="sticky top-0 bg-background">
+                                                <TableRow>
+                                                    <TableHead />
+                                                    <TableHead>
+                                                        {t(
+                                                            'open_diagram_dialog.table_columns.name'
+                                                        )}
+                                                    </TableHead>
+                                                    <TableHead className="hidden sm:table-cell">
+                                                        {t(
+                                                            'open_diagram_dialog.table_columns.created_at'
+                                                        )}
+                                                    </TableHead>
+                                                    <TableHead>
+                                                        {t(
+                                                            'open_diagram_dialog.table_columns.last_modified'
+                                                        )}
+                                                    </TableHead>
+                                                    <TableHead className="text-center">
+                                                        {t(
+                                                            'open_diagram_dialog.table_columns.tables_count'
+                                                        )}
+                                                    </TableHead>
+                                                    <TableHead />
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {diagrams.map((diagram) => (
+                                                    <TableRow
+                                                        key={diagram.id}
+                                                        data-state={
+                                                            selectedDiagramId ===
+                                                            diagram.id
+                                                                ? 'selected'
+                                                                : undefined
+                                                        }
+                                                        className="cursor-pointer"
+                                                        onClick={() =>
+                                                            setSelectedDiagramId(
+                                                                diagram.id
+                                                            )
+                                                        }
+                                                        onDoubleClick={() => {
+                                                            openDiagram(
+                                                                diagram.id
+                                                            );
+                                                            closeOpenDiagramDialog();
+                                                        }}
+                                                    >
+                                                        <TableCell>
+                                                            <div className="flex justify-center">
+                                                                <DiagramIcon
+                                                                    databaseType={
+                                                                        diagram.databaseType as DatabaseType
+                                                                    }
+                                                                    databaseEdition={
+                                                                        (diagram.databaseEdition ??
+                                                                            undefined) as
+                                                                            | DatabaseEdition
+                                                                            | undefined
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {diagram.name}
+                                                        </TableCell>
+                                                        <TableCell className="hidden sm:table-cell">
+                                                            {diagram.createdAt.toLocaleString()}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {diagram.updatedAt.toLocaleString()}
+                                                        </TableCell>
+                                                        <TableCell className="text-center">
+                                                            {diagram.tableCount}
+                                                        </TableCell>
+                                                        <TableCell className="p-0 pr-1 text-right">
+                                                            <DiagramRowActionsMenu
+                                                                onOpen={() => {
+                                                                    openDiagram(
+                                                                        diagram.id
+                                                                    );
+                                                                    closeOpenDiagramDialog();
+                                                                }}
+                                                                onRename={() =>
+                                                                    void handleRenameDiagram(
+                                                                        diagram
+                                                                    )
                                                                 }
-                                                                databaseEdition={
-                                                                    (diagram.databaseEdition ??
-                                                                        undefined) as
-                                                                        | DatabaseEdition
-                                                                        | undefined
+                                                                onDelete={() =>
+                                                                    handleDeleteDiagram(
+                                                                        diagram
+                                                                    )
                                                                 }
                                                             />
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {diagram.name}
-                                                    </TableCell>
-                                                    <TableCell className="hidden sm:table-cell">
-                                                        {diagram.createdAt.toLocaleString()}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {diagram.updatedAt.toLocaleString()}
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
-                                                        {diagram.tableCount}
-                                                    </TableCell>
-                                                    <TableCell className="p-0 pr-1 text-right">
-                                                        <DiagramRowActionsMenu
-                                                            onOpen={() => {
-                                                                openDiagram(
-                                                                    diagram.id
-                                                                );
-                                                                closeOpenDiagramDialog();
-                                                            }}
-                                                            onRename={() =>
-                                                                void handleRenameDiagram(
-                                                                    diagram
-                                                                )
-                                                            }
-                                                            onDelete={() =>
-                                                                handleDeleteDiagram(
-                                                                    diagram
-                                                                )
-                                                            }
-                                                        />
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                ) : null}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    ) : null}
 
-                                {!selectedProject ? (
-                                    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.no_project_selected'
-                                        )}
-                                    </div>
-                                ) : null}
+                                    {!selectedProject ? (
+                                        <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+                                            {t(
+                                                'open_diagram_dialog.no_project_selected'
+                                            )}
+                                        </div>
+                                    ) : null}
 
-                                {selectedProject && diagrams.length === 0 ? (
-                                    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                                        {t(
-                                            'open_diagram_dialog.empty_diagrams'
-                                        )}
-                                    </div>
-                                ) : null}
+                                    {selectedProject &&
+                                    diagrams.length === 0 ? (
+                                        <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+                                            {normalizedSearchTerm
+                                                ? t(
+                                                      'open_diagram_dialog.empty_search_diagrams',
+                                                      {
+                                                          search: deferredSearchInput.trim(),
+                                                      }
+                                                  )
+                                                : t(
+                                                      'open_diagram_dialog.empty_diagrams'
+                                                  )}
+                                        </div>
+                                    ) : null}
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -157,10 +157,20 @@ export const persistenceClient = {
         requestJson<{ ok: boolean }>(`/api/collections/${collectionId}`, {
             method: 'DELETE',
         }),
-    listProjects: async (options?: { search?: string }) => {
+    listProjects: async (options?: {
+        search?: string;
+        collectionId?: string;
+        unassigned?: boolean;
+    }) => {
         const params = new URLSearchParams();
         if (options?.search) {
             params.set('search', options.search);
+        }
+        if (options?.collectionId) {
+            params.set('collectionId', options.collectionId);
+        }
+        if (options?.unassigned) {
+            params.set('unassigned', 'true');
         }
 
         return requestJson<{ items: PersistedProjectSummary[] }>(

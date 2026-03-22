@@ -141,6 +141,22 @@ const toSavedDiagram = (
     localOnly,
 });
 
+const normalizeSearchTerm = (value?: string) => {
+    const normalized = value?.trim().toLowerCase() ?? '';
+    return normalized.length > 0 ? normalized : undefined;
+};
+
+const matchesSearch = (
+    values: Array<string | null | undefined>,
+    searchTerm?: string
+) => {
+    if (!searchTerm) {
+        return true;
+    }
+
+    return values.some((value) => value?.toLowerCase().includes(searchTerm));
+};
+
 export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     children,
 }) => {
@@ -1470,11 +1486,29 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             [db, scheduleDiagramSync]
         );
 
-    const listProjects: StorageContext['listProjects'] =
-        useCallback(async () => {
+    const listProjects: StorageContext['listProjects'] = useCallback(
+        async (options) => {
+            const searchTerm = normalizeSearchTerm(options?.search);
             await ensureRemotePersistenceReady();
             if (!remoteReadyRef.current) {
-                return await buildLocalOnlyProject();
+                const localProjects = await buildLocalOnlyProject();
+                return localProjects.filter((project) =>
+                    matchesSearch(
+                        [project.name, project.description],
+                        searchTerm
+                    )
+                );
+            }
+
+            if (
+                options?.search ||
+                options?.collectionId ||
+                options?.unassigned
+            ) {
+                const response = await persistenceClient.listProjects(options);
+                return await Promise.all(
+                    response.items.map((project) => cacheProject(project))
+                );
             }
 
             await syncRemoteCatalog();
@@ -1482,12 +1516,15 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             return cachedProjects.length > 0
                 ? cachedProjects
                 : await buildLocalOnlyProject();
-        }, [
+        },
+        [
             buildLocalOnlyProject,
+            cacheProject,
             ensureRemotePersistenceReady,
             readCachedProjects,
             syncRemoteCatalog,
-        ]);
+        ]
+    );
 
     const listCollections: StorageContext['listCollections'] =
         useCallback(async () => {
@@ -1613,21 +1650,39 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const listProjectDiagrams: StorageContext['listProjectDiagrams'] =
         useCallback(
-            async (projectId) => {
+            async (projectId, options) => {
+                const searchTerm = normalizeSearchTerm(options?.search);
                 await ensureRemotePersistenceReady();
                 if (!remoteReadyRef.current) {
-                    return projectId === LOCAL_ONLY_PROJECT_ID
-                        ? await buildLocalOnlyProjectDiagrams()
-                        : [];
+                    if (projectId !== LOCAL_ONLY_PROJECT_ID) {
+                        return [];
+                    }
+
+                    const localDiagrams = await buildLocalOnlyProjectDiagrams();
+                    return localDiagrams.filter((diagram) =>
+                        matchesSearch(
+                            [
+                                diagram.name,
+                                diagram.description,
+                                diagram.databaseType,
+                                diagram.databaseEdition,
+                            ],
+                            searchTerm
+                        )
+                    );
                 }
 
-                const response =
-                    await persistenceClient.listProjectDiagrams(projectId);
+                const response = await persistenceClient.listProjectDiagrams(
+                    projectId,
+                    options
+                );
                 const diagrams = response.items as PersistedDiagramSummary[];
-                await Promise.all(
+                const cachedDiagrams = await Promise.all(
                     diagrams.map((diagram) => cacheDiagram(diagram))
                 );
-                return await readCachedProjectDiagrams(projectId);
+                return options?.search
+                    ? cachedDiagrams
+                    : await readCachedProjectDiagrams(projectId);
             },
             [
                 buildLocalOnlyProjectDiagrams,
