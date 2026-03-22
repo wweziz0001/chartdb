@@ -71,4 +71,55 @@ describe('persistence foundation', () => {
 
         repository.close();
     });
+
+    it('updates saved diagram metadata without replacing the stored document', () => {
+        const { repository, service } = createService();
+        const bootstrap = service.bootstrap();
+        const now = new Date('2026-03-22T12:00:00.000Z');
+
+        service.upsertDiagram('diagram-1', {
+            projectId: bootstrap.defaultProject.id,
+            description: 'Original description',
+            diagram: {
+                id: 'ignored-by-route',
+                name: 'Original Diagram',
+                databaseType: 'postgresql',
+                tables: [{ id: 'tbl-1', name: 'users' }],
+                createdAt: now.toISOString(),
+                updatedAt: now.toISOString(),
+            },
+        });
+
+        const updated = service.updateDiagram('diagram-1', {
+            name: 'Renamed Diagram',
+            description: 'Updated description',
+            status: 'archived',
+        });
+
+        expect(updated.name).toBe('Renamed Diagram');
+        expect(updated.description).toBe('Updated description');
+        expect(updated.status).toBe('archived');
+        expect(updated.diagram.name).toBe('Renamed Diagram');
+        expect(updated.diagram.tables).toEqual([
+            { id: 'tbl-1', name: 'users' },
+        ]);
+
+        repository.close();
+    });
+
+    it('re-points the default project after deleting the current default', () => {
+        const { repository, service } = createService();
+        const bootstrap = service.bootstrap();
+        const secondaryProject = service.createProject({
+            name: 'Secondary Project',
+        });
+
+        service.deleteProject(bootstrap.defaultProject.id);
+        const nextBootstrap = service.bootstrap();
+
+        expect(nextBootstrap.defaultProject.id).toBe(secondaryProject.id);
+        expect(nextBootstrap.defaultProject.name).toBe('Secondary Project');
+
+        repository.close();
+    });
 });

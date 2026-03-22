@@ -65,6 +65,16 @@ export const registerPersistenceRoutes = (
         };
     });
 
+    app.patch('/api/diagrams/:id', async (request) => {
+        const params = request.params as { id: string };
+        return {
+            diagram: context.persistenceService.updateDiagram(
+                params.id,
+                request.body
+            ),
+        };
+    });
+
     app.delete('/api/diagrams/:id', async (request) => {
         const params = request.params as { id: string };
         context.persistenceService.deleteDiagram(params.id);

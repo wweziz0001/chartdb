@@ -16,7 +16,7 @@ export const KeyboardShortcutsProvider: React.FC<React.PropsWithChildren> = ({
 }) => {
     const { redo, undo } = useHistory();
     const { openOpenDiagramDialog } = useDialog();
-    const { updateDiagramUpdatedAt } = useChartDB();
+    const { saveDiagram } = useChartDB();
     const { toggleSidePanel } = useLayout();
     const { fitView } = useReactFlow();
 
@@ -48,11 +48,11 @@ export const KeyboardShortcutsProvider: React.FC<React.PropsWithChildren> = ({
     useHotkeys(
         keyboardShortcutsForOS[KeyboardShortcutAction.SAVE_DIAGRAM]
             .keyCombination,
-        updateDiagramUpdatedAt,
+        saveDiagram,
         {
             preventDefault: true,
         },
-        [updateDiagramUpdatedAt]
+        [saveDiagram]
     );
     useHotkeys(
         keyboardShortcutsForOS[KeyboardShortcutAction.TOGGLE_SIDE_PANEL]

@@ -240,6 +240,16 @@ export const ChartDBProvider: React.FC<
             });
         }, [db, diagramId, setDiagramUpdatedAt]);
 
+    const saveDiagram: ChartDBContext['saveDiagram'] = useCallback(async () => {
+        const updatedAt = new Date();
+        setDiagramUpdatedAt(updatedAt);
+        await db.updateDiagram({
+            id: diagramId,
+            attributes: { updatedAt },
+        });
+        await storageDB.saveDiagram({ diagramId });
+    }, [db, diagramId, setDiagramUpdatedAt, storageDB]);
+
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
             async (databaseType) => {
@@ -2130,6 +2140,7 @@ export const ChartDBProvider: React.FC<
                 clearDiagramData,
                 deleteDiagram,
                 updateDiagramUpdatedAt,
+                saveDiagram,
                 createTable,
                 addTable,
                 addTables,

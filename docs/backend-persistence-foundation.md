@@ -101,5 +101,6 @@ It intentionally does **not** add auth, collaboration, or permission enforcement
 ## Current Constraints
 
 - The editor still behaves like a single-user app.
-- The UI does not expose project switching yet; diagrams are persisted into a bootstrapped default project.
+- The UI now exposes saved-project management flows for save, save as, open, rename, and delete.
+- Newly created diagrams still default into the bootstrapped project unless the user chooses a different target through `Save As`.
 - Browser-local Dexie remains in place as a working cache for compatibility with the current editor architecture.

@@ -16,7 +16,9 @@ export const en = {
                 actions: 'Actions',
                 new: 'New...',
                 browse: 'All Databases...',
+                open_saved_project: 'Open Saved Project...',
                 save: 'Save',
+                save_as: 'Save As...',
                 import: 'Import',
                 export_sql: 'Export SQL',
                 export_as: 'Export as',
@@ -346,8 +348,14 @@ export const en = {
         },
 
         open_diagram_dialog: {
-            title: 'Open Database',
-            description: 'Select a diagram to open from the list below.',
+            title: 'Open Saved Project',
+            description:
+                'Browse saved projects and open a diagram from durable storage.',
+            projects: 'Projects',
+            empty_projects: 'No saved projects yet.',
+            empty_diagrams: 'No saved diagrams in this project yet.',
+            no_project_selected: 'Select a project',
+            project_count: '{{count}} diagrams',
             table_columns: {
                 name: 'Name',
                 created_at: 'Created at',
@@ -358,10 +366,39 @@ export const en = {
             open: 'Open',
             new_database: 'New Database',
 
+            project_actions: {
+                create: 'New Project',
+                create_prompt: 'Enter a project name',
+                description_prompt: 'Enter an optional project description',
+                rename: 'Rename Project',
+                rename_prompt: 'Rename this project',
+                delete: 'Delete Project',
+                delete_description:
+                    'This will permanently delete "{{name}}" and all saved diagrams inside it.',
+            },
             diagram_actions: {
                 open: 'Open',
+                rename: 'Rename',
+                rename_prompt: 'Rename this diagram',
                 duplicate: 'Duplicate',
                 delete: 'Delete',
+            },
+        },
+
+        save_diagram_dialog: {
+            title: 'Save Diagram As',
+            description:
+                'Create a saved copy of the current diagram in an existing or new project.',
+            submit: 'Save As',
+            error: 'Unable to save the diagram right now.',
+            fields: {
+                name: 'Diagram name',
+                description: 'Description',
+                project: 'Project',
+                project_placeholder: 'Choose a project',
+                create_project: 'Create New Project',
+                project_name: 'New project name',
+                project_description: 'New project description',
             },
         },
 
