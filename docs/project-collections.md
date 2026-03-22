@@ -32,13 +32,27 @@ Projects now store an optional `collectionId`.
 ## UI behavior
 
 - `Open Saved Project` now has a collections column, a project column, and a diagram column.
+- The dialog includes a single search box for quickly narrowing collections, projects, and diagrams.
 - The collections column includes:
-  - `All Projects`
-  - `Unorganized`
-  - user-created collections
+    - `All Projects`
+    - `Unorganized`
+    - user-created collections
 - Selecting a collection filters the project list.
 - Selecting a project shows its diagrams and lets you move that project into another collection.
 - `Save Diagram As` can create a new project directly inside a chosen collection.
+
+## Search behavior
+
+- Search is case-insensitive and uses substring matching.
+- Project search matches:
+    - project name
+    - project description
+    - collection name and description
+    - related diagram names and descriptions
+    - saved diagram database type and edition
+    - saved table names and schema names when present in the persisted diagram document
+- Diagram search inside a selected project matches diagram metadata directly.
+- If the search term matches the selected project's own metadata or collection name, the diagram list keeps showing that project's diagrams so the project remains explorable.
 
 ## API surface
 
@@ -48,9 +62,19 @@ Projects now store an optional `collectionId`.
 - `DELETE /api/collections/:id`
 - `GET /api/projects?collectionId=<id>`
 - `GET /api/projects?unassigned=true`
+- `GET /api/projects?search=<term>`
+- `GET /api/projects?search=<term>&collectionId=<id>`
+- `GET /api/projects/:id/diagrams?search=<term>`
+
+## Limitations
+
+- Search is not fuzzy-ranked; it only checks normalized substring matches.
+- Table and schema matching depends on those names being present in the saved diagram document metadata.
+- Search currently focuses on saved library metadata, not SQL content or full-text indexing.
 
 ## Testing coverage
 
 - collection CRUD
 - moving a project into and out of a collection
 - listing projects by collection
+- exact-match, partial-match, empty-result, and combined-filter search coverage
