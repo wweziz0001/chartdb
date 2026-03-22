@@ -30,6 +30,16 @@ export default defineConfig({
             '@': path.resolve(__dirname, './src'),
         },
     },
+    server: {
+        proxy: {
+            '/api': {
+                target:
+                    process.env.VITE_SCHEMA_SYNC_API_PROXY_TARGET ??
+                    'http://localhost:4010',
+                changeOrigin: true,
+            },
+        },
+    },
     build: {
         rollupOptions: {
             external: (id) => /__test__/.test(id),

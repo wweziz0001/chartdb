@@ -78,6 +78,7 @@ export interface ChartDBContext {
     customTypes: DBCustomType[];
     notes: Note[];
     currentDiagram: Diagram;
+    syncState?: Diagram['syncState'];
     events: EventEmitter<ChartDBEvent>;
     readonly?: boolean;
 
@@ -99,6 +100,7 @@ export interface ChartDBContext {
         diagram: Diagram,
         options?: { forceUpdateStorage?: boolean }
     ) => Promise<void>;
+    updateSyncState: (syncState?: Diagram['syncState']) => Promise<void>;
 
     // Database type operations
     updateDatabaseType: (databaseType: DatabaseType) => Promise<void>;
@@ -360,6 +362,7 @@ export const chartDBContext = createContext<ChartDBContext>({
     clearDiagramData: emptyFn,
     deleteDiagram: emptyFn,
     updateDiagramData: emptyFn,
+    updateSyncState: emptyFn,
 
     // Database type operations
     updateDatabaseType: emptyFn,

@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+    canonicalSchemaSchema,
+    type CanonicalSchema,
+} from '../../../shared/schema-sync/canonical';
 import { DatabaseEdition } from './database-edition';
 import { DatabaseType } from './database-type';
 import type { DBDependency } from './db-dependency';
@@ -24,11 +28,19 @@ export interface Diagram {
     areas?: Area[];
     customTypes?: DBCustomType[];
     notes?: Note[];
+    syncState?: {
+        connectionId?: string;
+        baselineSchema?: CanonicalSchema;
+        importedAt?: string;
+        lastImportAuditId?: string;
+        previewAuditId?: string;
+        lastApplyAuditId?: string;
+    };
     createdAt: Date;
     updatedAt: Date;
 }
 
-export const diagramSchema: z.ZodType<Diagram> = z.object({
+export const diagramSchema = z.object({
     id: z.string(),
     name: z.string(),
     databaseType: z.nativeEnum(DatabaseType),
@@ -39,6 +51,19 @@ export const diagramSchema: z.ZodType<Diagram> = z.object({
     areas: z.array(areaSchema).optional(),
     customTypes: z.array(dbCustomTypeSchema).optional(),
     notes: z.array(noteSchema).optional(),
+    syncState: z
+        .object({
+            connectionId: z.string().optional(),
+            baselineSchema: canonicalSchemaSchema.optional(),
+            importedAt: z.string().optional(),
+            lastImportAuditId: z.string().optional(),
+            previewAuditId: z.string().optional(),
+            lastApplyAuditId: z.string().optional(),
+        })
+        .optional(),
     createdAt: z.date(),
     updatedAt: z.date(),
 });
+
+export const typedDiagramSchema =
+    diagramSchema as unknown as z.ZodType<Diagram>;

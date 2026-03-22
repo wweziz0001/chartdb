@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "composite": true,
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "resolveJsonModule": true,
+        "noEmit": true,
+        "rootDir": "..",
+        "types": ["node"],
+        "allowImportingTsExtensions": true
+    },
+    "include": ["src/**/*.ts", "../shared/**/*.ts"]
+}
