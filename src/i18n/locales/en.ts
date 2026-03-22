@@ -356,13 +356,22 @@ export const en = {
             all_projects: 'All Projects',
             all_projects_description:
                 'Browse every saved project across your workspace.',
+            search_label: 'Search library',
+            search_placeholder:
+                'Search projects, diagrams, descriptions, collections, tables, and schemas',
+            search_help:
+                'Search is case-insensitive and matches project metadata, collection names, diagram details, and saved table or schema names.',
             unassigned_collection: 'Unorganized',
             unassigned_collection_description:
                 'Projects not assigned to a collection yet.',
             empty_collections:
                 'No collections yet. Create one when you want to group projects.',
+            empty_search_collections: 'No collections match "{{search}}".',
             empty_projects: 'No saved projects yet.',
+            empty_search_projects: 'No projects match "{{search}}".',
             empty_diagrams: 'No saved diagrams in this project yet.',
+            empty_search_diagrams:
+                'No diagrams in this project match "{{search}}".',
             no_project_selected: 'Select a project',
             collection_count: '{{count}} projects',
             project_count: '{{count}} diagrams',

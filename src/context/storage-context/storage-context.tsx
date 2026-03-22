@@ -67,7 +67,11 @@ export interface StorageContext {
         params: { name?: string; description?: string | null }
     ) => Promise<SavedCollection>;
     deleteCollection: (collectionId: string) => Promise<void>;
-    listProjects: () => Promise<SavedProject[]>;
+    listProjects: (options?: {
+        search?: string;
+        collectionId?: string;
+        unassigned?: boolean;
+    }) => Promise<SavedProject[]>;
     createProject: (params: {
         name: string;
         description?: string | null;
@@ -82,7 +86,12 @@ export interface StorageContext {
         }
     ) => Promise<SavedProject>;
     deleteProject: (projectId: string) => Promise<void>;
-    listProjectDiagrams: (projectId: string) => Promise<SavedDiagram[]>;
+    listProjectDiagrams: (
+        projectId: string,
+        options?: {
+            search?: string;
+        }
+    ) => Promise<SavedDiagram[]>;
     getSavedDiagram: (diagramId: string) => Promise<SavedDiagram | undefined>;
     updateSavedDiagram: (
         diagramId: string,
