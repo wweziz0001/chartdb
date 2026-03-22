@@ -9,11 +9,47 @@ export const registerPersistenceRoutes = (
         return context.persistenceService.bootstrap();
     });
 
+    app.get('/api/collections', async () => {
+        return {
+            items: context.persistenceService.listCollections(),
+        };
+    });
+
+    app.post('/api/collections', async (request) => {
+        return {
+            collection: context.persistenceService.createCollection(
+                request.body
+            ),
+        };
+    });
+
+    app.patch('/api/collections/:id', async (request) => {
+        const params = request.params as { id: string };
+        return {
+            collection: context.persistenceService.updateCollection(
+                params.id,
+                request.body
+            ),
+        };
+    });
+
+    app.delete('/api/collections/:id', async (request) => {
+        const params = request.params as { id: string };
+        context.persistenceService.deleteCollection(params.id);
+        return { ok: true };
+    });
+
     app.get('/api/projects', async (request) => {
-        const query = request.query as { search?: string };
+        const query = request.query as {
+            search?: string;
+            collectionId?: string;
+            unassigned?: boolean;
+        };
         return {
             items: context.persistenceService.listProjects({
                 search: query.search,
+                collectionId: query.collectionId,
+                unassigned: query.unassigned,
             }),
         };
     });
