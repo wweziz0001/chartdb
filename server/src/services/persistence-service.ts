@@ -17,6 +17,12 @@ import {
     upsertDiagramSchema,
     updateProjectSchema,
 } from '../schemas/persistence.js';
+import {
+    matchesDiagramSearch,
+    matchesProjectMetadataSearch,
+    matchesProjectSearch,
+    normalizeSearchTerm,
+} from './persistence-search.js';
 import { AppError } from '../utils/app-error.js';
 import { generateId } from '../utils/id.js';
 
@@ -102,7 +108,21 @@ export class PersistenceService {
         unassigned?: boolean;
     }): Array<ProjectRecord & { diagramCount: number }> {
         const resolvedOptions = listProjectsQuerySchema.parse(options ?? {});
-        const searchTerm = resolvedOptions.search?.trim().toLowerCase();
+        const searchTerm = normalizeSearchTerm(resolvedOptions.search);
+        const collectionsById = new Map(
+            this.repository
+                .listCollections()
+                .map((collection) => [collection.id, collection] as const)
+        );
+        const diagramsByProjectId = this.repository
+            .listDiagrams()
+            .reduce((accumulator, diagram) => {
+                const diagrams = accumulator.get(diagram.projectId) ?? [];
+                diagrams.push(diagram);
+                accumulator.set(diagram.projectId, diagrams);
+                return accumulator;
+            }, new Map<string, DiagramRecord[]>());
+
         return this.repository
             .listProjects()
             .filter((project) => {
@@ -119,27 +139,36 @@ export class PersistenceService {
                 return true;
             })
             .filter((project) =>
-                searchTerm
-                    ? project.name.toLowerCase().includes(searchTerm) ||
-                      (project.description ?? '')
-                          .toLowerCase()
-                          .includes(searchTerm)
-                    : true
+                matchesProjectSearch(project, {
+                    searchTerm,
+                    collection: project.collectionId
+                        ? collectionsById.get(project.collectionId)
+                        : undefined,
+                    diagrams: diagramsByProjectId.get(project.id) ?? [],
+                })
             )
             .map((project) => ({
                 ...project,
-                diagramCount: this.repository.listProjectDiagrams(project.id)
-                    .length,
+                diagramCount: diagramsByProjectId.get(project.id)?.length ?? 0,
             }));
     }
 
     listCollections(): CollectionSummary[] {
         const projects = this.repository.listProjects();
         const collections = this.repository.listCollections();
+        const diagramsByProjectId = this.repository
+            .listDiagrams()
+            .reduce((accumulator, diagram) => {
+                accumulator.set(
+                    diagram.projectId,
+                    (accumulator.get(diagram.projectId) ?? 0) + 1
+                );
+                return accumulator;
+            }, new Map<string, number>());
         const diagramCounts = new Map(
             projects.map((project) => [
                 project.id,
-                this.repository.listProjectDiagrams(project.id).length,
+                diagramsByProjectId.get(project.id) ?? 0,
             ])
         );
 
@@ -288,16 +317,21 @@ export class PersistenceService {
         }
 
         const options = listProjectDiagramsQuerySchema.parse(query ?? {});
-        const searchTerm = options.search?.trim().toLowerCase();
+        const searchTerm = normalizeSearchTerm(options.search);
+        const collection = project.collectionId
+            ? this.repository.getCollection(project.collectionId)
+            : undefined;
+        const projectMetadataMatches = matchesProjectMetadataSearch(
+            project,
+            collection,
+            searchTerm
+        );
         const diagrams = this.repository
             .listProjectDiagrams(projectId)
             .filter((diagram) =>
-                searchTerm
-                    ? diagram.name.toLowerCase().includes(searchTerm) ||
-                      (diagram.description ?? '')
-                          .toLowerCase()
-                          .includes(searchTerm)
-                    : true
+                projectMetadataMatches
+                    ? true
+                    : matchesDiagramSearch(diagram, searchTerm)
             );
 
         if (options.view === 'full') {
