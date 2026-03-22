@@ -200,4 +200,94 @@ describe('persistence routes', () => {
 
         await app.close();
     });
+
+    it('supports search queries and validates incompatible project filters', async () => {
+        const app = buildApp({ env: createTestEnv() });
+
+        const bootstrap = await app.inject({
+            method: 'GET',
+            url: '/api/app/bootstrap',
+        });
+        const defaultProjectId = bootstrap.json().defaultProject.id as string;
+
+        const createdCollectionResponse = await app.inject({
+            method: 'POST',
+            url: '/api/collections',
+            payload: {
+                name: 'Analytics Workspace',
+            },
+        });
+        const createdCollection = createdCollectionResponse.json()
+            .collection as {
+            id: string;
+        };
+
+        const createdProjectResponse = await app.inject({
+            method: 'POST',
+            url: '/api/projects',
+            payload: {
+                name: 'Revenue Reporting',
+                collectionId: createdCollection.id,
+            },
+        });
+        const createdProject = createdProjectResponse.json().project as {
+            id: string;
+        };
+
+        await app.inject({
+            method: 'PUT',
+            url: '/api/diagrams/diagram-search-1',
+            payload: {
+                projectId: createdProject.id,
+                description: 'Revenue search fixture',
+                diagram: {
+                    id: 'ignored',
+                    name: 'Revenue Diagram',
+                    databaseType: 'postgresql',
+                    tables: [
+                        { id: 'tbl-1', name: 'accounts', schema: 'finance' },
+                    ],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:00:00.000Z',
+                },
+            },
+        });
+
+        const searchProjectsResponse = await app.inject({
+            method: 'GET',
+            url: '/api/projects?search=finance',
+        });
+        expect(searchProjectsResponse.statusCode).toBe(200);
+        expect(
+            searchProjectsResponse
+                .json()
+                .items.map((project: { id: string }) => project.id)
+        ).toContain(createdProject.id);
+        expect(
+            searchProjectsResponse
+                .json()
+                .items.map((project: { id: string }) => project.id)
+        ).not.toContain(defaultProjectId);
+
+        const searchDiagramsResponse = await app.inject({
+            method: 'GET',
+            url: `/api/projects/${createdProject.id}/diagrams?search=analytic`,
+        });
+        expect(searchDiagramsResponse.statusCode).toBe(200);
+        expect(searchDiagramsResponse.json().items).toHaveLength(1);
+
+        const invalidFilterResponse = await app.inject({
+            method: 'GET',
+            url: `/api/projects?collectionId=${createdCollection.id}&unassigned=true`,
+        });
+        expect(invalidFilterResponse.statusCode).toBe(400);
+        expect(invalidFilterResponse.json().issues).toEqual([
+            expect.objectContaining({
+                message:
+                    'collectionId and unassigned filters cannot be combined.',
+            }),
+        ]);
+
+        await app.close();
+    });
 });
