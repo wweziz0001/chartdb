@@ -43,20 +43,46 @@ describe('persistence routes', () => {
         });
         const defaultProjectId = bootstrap.json().defaultProject.id as string;
 
+        const createdCollectionResponse = await app.inject({
+            method: 'POST',
+            url: '/api/collections',
+            payload: {
+                name: 'Operations',
+                description: 'Runbooks and systems diagrams',
+            },
+        });
+        expect(createdCollectionResponse.statusCode).toBe(200);
+        const createdCollection = createdCollectionResponse.json()
+            .collection as {
+            id: string;
+            name: string;
+        };
+        expect(createdCollection.name).toBe('Operations');
+
         const createdProjectResponse = await app.inject({
             method: 'POST',
             url: '/api/projects',
             payload: {
                 name: 'Team Project',
                 description: 'Main project workspace',
+                collectionId: createdCollection.id,
             },
         });
         expect(createdProjectResponse.statusCode).toBe(200);
         const createdProject = createdProjectResponse.json().project as {
             id: string;
             name: string;
+            collectionId: string | null;
         };
         expect(createdProject.name).toBe('Team Project');
+        expect(createdProject.collectionId).toBe(createdCollection.id);
+
+        const projectsByCollectionResponse = await app.inject({
+            method: 'GET',
+            url: `/api/projects?collectionId=${createdCollection.id}`,
+        });
+        expect(projectsByCollectionResponse.statusCode).toBe(200);
+        expect(projectsByCollectionResponse.json().items).toHaveLength(1);
 
         const createDiagramResponse = await app.inject({
             method: 'PUT',
@@ -96,6 +122,43 @@ describe('persistence routes', () => {
         expect(projectDiagramsResponse.statusCode).toBe(200);
         expect(projectDiagramsResponse.json().items).toHaveLength(1);
 
+        const movedProjectResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/projects/${createdProject.id}`,
+            payload: {
+                collectionId: null,
+            },
+        });
+        expect(movedProjectResponse.statusCode).toBe(200);
+        expect(movedProjectResponse.json().project.collectionId).toBeNull();
+
+        const unassignedProjectsResponse = await app.inject({
+            method: 'GET',
+            url: '/api/projects?unassigned=true',
+        });
+        expect(unassignedProjectsResponse.statusCode).toBe(200);
+        expect(
+            unassignedProjectsResponse
+                .json()
+                .items.some(
+                    (project: { id: string }) =>
+                        project.id === createdProject.id
+                )
+        ).toBe(true);
+
+        const collectionsResponse = await app.inject({
+            method: 'GET',
+            url: '/api/collections',
+        });
+        expect(collectionsResponse.statusCode).toBe(200);
+        expect(collectionsResponse.json().items).toEqual([
+            expect.objectContaining({
+                id: createdCollection.id,
+                projectCount: 0,
+                diagramCount: 0,
+            }),
+        ]);
+
         const deleteDiagramResponse = await app.inject({
             method: 'DELETE',
             url: '/api/diagrams/diagram-1',
@@ -107,6 +170,12 @@ describe('persistence routes', () => {
             url: `/api/projects/${createdProject.id}`,
         });
         expect(deleteProjectResponse.statusCode).toBe(200);
+
+        const deleteCollectionResponse = await app.inject({
+            method: 'DELETE',
+            url: `/api/collections/${createdCollection.id}`,
+        });
+        expect(deleteCollectionResponse.statusCode).toBe(200);
 
         const projectsResponse = await app.inject({
             method: 'GET',
