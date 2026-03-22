@@ -22,6 +22,8 @@ import type { ExportImageDialogProps } from '@/dialogs/export-image-dialog/expor
 import { ExportImageDialog } from '@/dialogs/export-image-dialog/export-image-dialog';
 import { ExportDiagramDialog } from '@/dialogs/export-diagram-dialog/export-diagram-dialog';
 import { ImportDiagramDialog } from '@/dialogs/import-diagram-dialog/import-diagram-dialog';
+import { ExportBackupDialog } from '@/dialogs/export-backup-dialog/export-backup-dialog';
+import { ImportBackupDialog } from '@/dialogs/import-backup-dialog/import-backup-dialog';
 
 export const DialogProvider: React.FC<React.PropsWithChildren> = ({
     children,
@@ -148,6 +150,12 @@ export const DialogProvider: React.FC<React.PropsWithChildren> = ({
     const [openImportDiagramDialog, setOpenImportDiagramDialog] =
         useState(false);
 
+    // Export backup dialog
+    const [openExportBackupDialog, setOpenExportBackupDialog] = useState(false);
+
+    // Import backup dialog
+    const [openImportBackupDialog, setOpenImportBackupDialog] = useState(false);
+
     return (
         <dialogContext.Provider
             value={{
@@ -179,6 +187,10 @@ export const DialogProvider: React.FC<React.PropsWithChildren> = ({
                 openImportDiagramDialog: () => setOpenImportDiagramDialog(true),
                 closeImportDiagramDialog: () =>
                     setOpenImportDiagramDialog(false),
+                openExportBackupDialog: () => setOpenExportBackupDialog(true),
+                closeExportBackupDialog: () => setOpenExportBackupDialog(false),
+                openImportBackupDialog: () => setOpenImportBackupDialog(true),
+                closeImportBackupDialog: () => setOpenImportBackupDialog(false),
             }}
         >
             {children}
@@ -217,6 +229,8 @@ export const DialogProvider: React.FC<React.PropsWithChildren> = ({
             />
             <ExportDiagramDialog dialog={{ open: openExportDiagramDialog }} />
             <ImportDiagramDialog dialog={{ open: openImportDiagramDialog }} />
+            <ExportBackupDialog dialog={{ open: openExportBackupDialog }} />
+            <ImportBackupDialog dialog={{ open: openImportBackupDialog }} />
         </dialogContext.Provider>
     );
 };

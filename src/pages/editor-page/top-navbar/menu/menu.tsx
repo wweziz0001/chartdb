@@ -43,6 +43,8 @@ export const Menu: React.FC<MenuProps> = () => {
         openExportImageDialog,
         openExportDiagramDialog,
         openImportDiagramDialog,
+        openExportBackupDialog,
+        openImportBackupDialog,
     } = useDialog();
     const { showAlert } = useAlert();
     const { setTheme, theme } = useTheme();
@@ -477,11 +479,11 @@ export const Menu: React.FC<MenuProps> = () => {
             <MenubarMenu>
                 <MenubarTrigger>{t('menu.backup.backup')}</MenubarTrigger>
                 <MenubarContent>
-                    <MenubarItem onClick={openExportDiagramDialog}>
-                        {t('menu.backup.export_diagram')}
+                    <MenubarItem onClick={openExportBackupDialog}>
+                        {t('menu.backup.export_backup')}
                     </MenubarItem>
-                    <MenubarItem onClick={openImportDiagramDialog}>
-                        {t('menu.backup.restore_diagram')}
+                    <MenubarItem onClick={openImportBackupDialog}>
+                        {t('menu.backup.import_backup')}
                     </MenubarItem>
                 </MenubarContent>
             </MenubarMenu>

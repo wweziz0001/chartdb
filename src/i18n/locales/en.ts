@@ -48,6 +48,8 @@ export const en = {
             },
             backup: {
                 backup: 'Backup',
+                export_backup: 'Export Backup',
+                import_backup: 'Import Backup',
                 export_diagram: 'Export Diagram',
                 restore_diagram: 'Restore Diagram',
             },
@@ -557,6 +559,61 @@ export const en = {
                 title: 'Error importing diagram',
                 description:
                     'The diagram JSON is invalid. Please check the JSON and try again. Need help? support@chartdb.io',
+            },
+        },
+
+        backup_export_dialog: {
+            title: 'Export Project Backup',
+            description:
+                'Export saved ChartDB projects and diagrams in the versioned ChartDB backup format.',
+            cancel: 'Cancel',
+            export: 'Export Backup',
+            scope: {
+                diagram: 'Current saved diagram',
+                project: 'Current saved project',
+                all_projects: 'All saved projects',
+            },
+            warning: {
+                title: 'Saved project required',
+                description:
+                    'This scope only works for diagrams that are already saved to the ChartDB project library.',
+            },
+            success: {
+                title: 'Backup exported',
+                description:
+                    'Exported {{projects}} project(s) and {{diagrams}} diagram(s).',
+            },
+            error: {
+                title: 'Error exporting backup',
+            },
+            errors: {
+                generic:
+                    'Something went wrong while exporting the backup. Need help? support@chartdb.io',
+                unsaved_diagram:
+                    'The current diagram is not saved to a ChartDB project yet.',
+                unsaved_project:
+                    'The current diagram is not attached to a saved ChartDB project yet.',
+            },
+        },
+
+        backup_import_dialog: {
+            title: 'Import Project Backup',
+            description:
+                'Import a previously exported ChartDB backup JSON file.',
+            cancel: 'Cancel',
+            import: 'Import Backup',
+            success: {
+                title: 'Backup imported',
+                description:
+                    'Imported {{projects}} project(s) and {{diagrams}} diagram(s).',
+            },
+            error: {
+                title: 'Error importing backup',
+                description:
+                    'The backup file is invalid or unsupported. Need help? support@chartdb.io',
+            },
+            errors: {
+                invalid_json: 'The selected file is not valid JSON.',
             },
         },
 
