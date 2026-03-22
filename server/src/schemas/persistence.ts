@@ -19,6 +19,12 @@ export const diagramVisibilitySchema = z.enum([
 export const diagramStatusSchema = z.enum(['draft', 'active', 'archived']);
 
 const diagramRecordSchema = z.record(z.string(), z.unknown());
+const optionalDescriptionSchema = z
+    .string()
+    .trim()
+    .max(500)
+    .nullable()
+    .optional();
 
 export const diagramDocumentSchema = z.object({
     id: z.string().min(1),
@@ -38,17 +44,48 @@ export const diagramDocumentSchema = z.object({
 
 export type DiagramDocument = z.infer<typeof diagramDocumentSchema>;
 
+export const createCollectionSchema = z.object({
+    name: z.string().trim().min(1).max(120),
+    description: optionalDescriptionSchema,
+});
+
+export const updateCollectionSchema = z
+    .object({
+        name: z.string().trim().min(1).max(120).optional(),
+        description: optionalDescriptionSchema,
+    })
+    .refine((value) => Object.keys(value).length > 0, {
+        message: 'At least one collection field must be updated.',
+    });
+
 export const createProjectSchema = z.object({
     name: z.string().trim().min(1).max(120),
-    description: z.string().trim().max(500).optional(),
+    description: optionalDescriptionSchema,
+    collectionId: z.string().trim().min(1).nullable().optional(),
     visibility: projectVisibilitySchema.optional(),
     status: projectStatusSchema.optional(),
 });
 
-export const updateProjectSchema = createProjectSchema
-    .partial()
+export const updateProjectSchema = z
+    .object({
+        name: z.string().trim().min(1).max(120).optional(),
+        description: optionalDescriptionSchema,
+        collectionId: z.string().trim().min(1).nullable().optional(),
+        visibility: projectVisibilitySchema.optional(),
+        status: projectStatusSchema.optional(),
+    })
     .refine((value) => Object.keys(value).length > 0, {
         message: 'At least one project field must be updated.',
+    });
+
+export const listProjectsQuerySchema = z
+    .object({
+        search: z.string().trim().optional(),
+        collectionId: z.string().trim().min(1).optional(),
+        unassigned: z.coerce.boolean().optional().default(false),
+    })
+    .refine((value) => !(value.collectionId && value.unassigned), {
+        message: 'collectionId and unassigned filters cannot be combined.',
     });
 
 export const listProjectDiagramsQuerySchema = z.object({
@@ -61,7 +98,7 @@ export const upsertDiagramSchema = z.object({
     ownerUserId: z.string().trim().min(1).optional(),
     visibility: diagramVisibilitySchema.optional(),
     status: diagramStatusSchema.optional(),
-    description: z.string().trim().max(500).optional(),
+    description: optionalDescriptionSchema,
     diagram: diagramDocumentSchema,
 });
 
