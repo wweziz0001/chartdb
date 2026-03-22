@@ -351,10 +351,20 @@ export const en = {
             title: 'Open Saved Project',
             description:
                 'Browse saved projects and open a diagram from durable storage.',
+            collections: 'Collections',
             projects: 'Projects',
+            all_projects: 'All Projects',
+            all_projects_description:
+                'Browse every saved project across your workspace.',
+            unassigned_collection: 'Unorganized',
+            unassigned_collection_description:
+                'Projects not assigned to a collection yet.',
+            empty_collections:
+                'No collections yet. Create one when you want to group projects.',
             empty_projects: 'No saved projects yet.',
             empty_diagrams: 'No saved diagrams in this project yet.',
             no_project_selected: 'Select a project',
+            collection_count: '{{count}} projects',
             project_count: '{{count}} diagrams',
             table_columns: {
                 name: 'Name',
@@ -366,6 +376,16 @@ export const en = {
             open: 'Open',
             new_database: 'New Database',
 
+            collection_actions: {
+                create: 'New',
+                create_prompt: 'Enter a collection name',
+                description_prompt: 'Enter an optional collection description',
+                rename: 'Rename',
+                rename_prompt: 'Rename this collection',
+                delete: 'Delete',
+                delete_description:
+                    'This will delete "{{name}}" and leave its projects unorganized.',
+            },
             project_actions: {
                 create: 'New Project',
                 create_prompt: 'Enter a project name',
@@ -375,6 +395,10 @@ export const en = {
                 delete: 'Delete Project',
                 delete_description:
                     'This will permanently delete "{{name}}" and all saved diagrams inside it.',
+            },
+            project_fields: {
+                collection: 'Collection',
+                collection_placeholder: 'Choose a collection',
             },
             diagram_actions: {
                 open: 'Open',
@@ -398,6 +422,9 @@ export const en = {
                 project_placeholder: 'Choose a project',
                 create_project: 'Create New Project',
                 project_name: 'New project name',
+                collection: 'Collection',
+                collection_placeholder: 'Choose a collection',
+                unassigned_collection: 'Unorganized',
                 project_description: 'New project description',
             },
         },

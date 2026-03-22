@@ -28,6 +28,7 @@ import { useNavigate } from 'react-router-dom';
 import type { BaseDialogProps } from '../common/base-dialog-props';
 
 const NEW_PROJECT_VALUE = '__new_project__';
+const UNASSIGNED_COLLECTION_VALUE = '__unassigned__';
 
 export interface SaveDiagramDialogProps extends BaseDialogProps {}
 
@@ -39,13 +40,20 @@ export const SaveDiagramDialog: React.FC<SaveDiagramDialogProps> = ({
     const { currentDiagram } = useChartDB();
     const { updateConfig } = useConfig();
     const { closeSaveDiagramDialog } = useDialog();
-    const { listProjects, getSavedDiagram, saveDiagramAs } = useStorage();
-    const [projects, setProjects] = useState<
+    const { listCollections, listProjects, getSavedDiagram, saveDiagramAs } =
+        useStorage();
+    const [collections, setCollections] = useState<
         Array<{ id: string; name: string }>
+    >([]);
+    const [projects, setProjects] = useState<
+        Array<{ id: string; name: string; collectionId: string | null }>
     >([]);
     const [selectedProjectId, setSelectedProjectId] = useState('');
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [selectedCollectionId, setSelectedCollectionId] = useState(
+        UNASSIGNED_COLLECTION_VALUE
+    );
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectDescription, setNewProjectDescription] = useState('');
     const [error, setError] = useState<string>();
@@ -57,20 +65,34 @@ export const SaveDiagramDialog: React.FC<SaveDiagramDialogProps> = ({
         }
 
         const load = async () => {
-            const [savedDiagram, savedProjects] = await Promise.all([
-                getSavedDiagram(currentDiagram.id),
-                listProjects(),
-            ]);
+            const [savedDiagram, savedCollections, savedProjects] =
+                await Promise.all([
+                    getSavedDiagram(currentDiagram.id),
+                    listCollections(),
+                    listProjects(),
+                ]);
+            setCollections(
+                savedCollections.map((collection) => ({
+                    id: collection.id,
+                    name: collection.name,
+                }))
+            );
             setProjects(
                 savedProjects.map((project) => ({
                     id: project.id,
                     name: project.name,
+                    collectionId: project.collectionId,
                 }))
             );
             setSelectedProjectId(
                 savedDiagram?.projectId ??
                     savedProjects[0]?.id ??
                     NEW_PROJECT_VALUE
+            );
+            setSelectedCollectionId(
+                savedProjects.find(
+                    (project) => project.id === savedDiagram?.projectId
+                )?.collectionId ?? UNASSIGNED_COLLECTION_VALUE
             );
             setName(`${currentDiagram.name} Copy`);
             setDescription(savedDiagram?.description ?? '');
@@ -85,6 +107,7 @@ export const SaveDiagramDialog: React.FC<SaveDiagramDialogProps> = ({
         currentDiagram.name,
         dialog.open,
         getSavedDiagram,
+        listCollections,
         listProjects,
     ]);
 
@@ -137,6 +160,11 @@ export const SaveDiagramDialog: React.FC<SaveDiagramDialogProps> = ({
                                           description:
                                               newProjectDescription.trim() ||
                                               null,
+                                          collectionId:
+                                              selectedCollectionId ===
+                                              UNASSIGNED_COLLECTION_VALUE
+                                                  ? null
+                                                  : selectedCollectionId,
                                       }
                                     : undefined,
                             });
@@ -229,6 +257,40 @@ export const SaveDiagramDialog: React.FC<SaveDiagramDialogProps> = ({
                                         setNewProjectName(event.target.value)
                                     }
                                 />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>
+                                    {t('save_diagram_dialog.fields.collection')}
+                                </Label>
+                                <Select
+                                    value={selectedCollectionId}
+                                    onValueChange={setSelectedCollectionId}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue
+                                            placeholder={t(
+                                                'save_diagram_dialog.fields.collection_placeholder'
+                                            )}
+                                        />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem
+                                            value={UNASSIGNED_COLLECTION_VALUE}
+                                        >
+                                            {t(
+                                                'save_diagram_dialog.fields.unassigned_collection'
+                                            )}
+                                        </SelectItem>
+                                        {collections.map((collection) => (
+                                            <SelectItem
+                                                key={collection.id}
+                                                value={collection.id}
+                                            >
+                                                {collection.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="grid gap-2">
                                 <Label htmlFor="save-diagram-project-description">
