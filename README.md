@@ -54,6 +54,7 @@ You can import a live schema from a real database, edit it visually, persist pro
 
 - **Self-Hosted Project Persistence**
   Persist ChartDB projects and diagrams through the backend API instead of relying only on browser storage. The editor still works locally, but a running backend now becomes the durable source of truth for saved work.
+  Save, save as, reopen, rename, and delete flows now operate on saved projects and diagrams from inside the editor.
 
 - **Live Schema Import**
   Import the live PostgreSQL schema into the existing visual editor and keep a persisted baseline snapshot for later diff/apply.
@@ -122,6 +123,12 @@ npm run dev:web
 
 The Vite development server proxies `/api` to `http://localhost:4010` by default.
 When the backend is available, ChartDB bootstraps a default self-hosted owner/project and persists diagrams there.
+Saved-project behavior now looks like this:
+
+- `Save` persists the current diagram back to its saved project immediately.
+- `Save As` creates a new saved diagram and can place it into an existing or brand new project.
+- `Open Saved Project` lets you browse projects, reopen diagrams, rename saved diagrams, and delete saved diagrams or whole projects.
+- Browser-local Dexie storage still acts as the editor working cache, but the backend becomes the durable source of truth for saved projects when it is reachable.
 
 ### Full Local Stack With Docker
 
@@ -171,7 +178,14 @@ Useful backend endpoints:
 - `GET /api/health`
 - `GET /api/app/bootstrap`
 - `GET /api/projects`
+- `POST /api/projects`
+- `PATCH /api/projects/:id`
+- `DELETE /api/projects/:id`
 - `GET /api/projects/:projectId/diagrams`
+- `GET /api/diagrams/:id`
+- `PUT /api/diagrams/:id`
+- `PATCH /api/diagrams/:id`
+- `DELETE /api/diagrams/:id`
 
 ### Run Only The Frontend
 
