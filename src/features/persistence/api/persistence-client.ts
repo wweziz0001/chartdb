@@ -21,6 +21,7 @@ export interface PersistedProjectSummary {
     status: 'active' | 'archived' | 'deleted';
     createdAt: string;
     updatedAt: string;
+    diagramCount: number;
 }
 
 export type DiagramDto = Omit<Diagram, 'createdAt' | 'updatedAt'> & {
@@ -58,6 +59,22 @@ export interface PersistedDiagramRecord {
     diagram: DiagramDto;
 }
 
+export interface PersistedProjectInput {
+    name: string;
+    description?: string | null;
+    visibility?: 'private' | 'workspace' | 'public';
+    status?: 'active' | 'archived' | 'deleted';
+}
+
+export interface PersistedDiagramUpdateInput {
+    projectId?: string;
+    ownerUserId?: string;
+    name?: string;
+    description?: string | null;
+    visibility?: 'private' | 'workspace' | 'public';
+    status?: 'draft' | 'active' | 'archived';
+}
+
 export interface BootstrapResponse {
     user: PersistedUserSummary;
     defaultProject: PersistedProjectSummary;
@@ -75,8 +92,50 @@ export const deserializeDiagram = (diagram: DiagramDto): Diagram => ({
     updatedAt: new Date(diagram.updatedAt),
 });
 
+export const deserializeProjectSummary = (
+    project: PersistedProjectSummary
+): PersistedProjectSummary => ({
+    ...project,
+});
+
+export const deserializeDiagramSummary = (
+    diagram: PersistedDiagramSummary
+): PersistedDiagramSummary => ({
+    ...diagram,
+});
+
 export const persistenceClient = {
     bootstrap: async () => requestJson<BootstrapResponse>('/api/app/bootstrap'),
+    listProjects: async (options?: { search?: string }) => {
+        const params = new URLSearchParams();
+        if (options?.search) {
+            params.set('search', options.search);
+        }
+
+        return requestJson<{ items: PersistedProjectSummary[] }>(
+            `/api/projects${params.size > 0 ? `?${params.toString()}` : ''}`
+        );
+    },
+    createProject: async (payload: PersistedProjectInput) =>
+        requestJson<{ project: PersistedProjectSummary }>('/api/projects', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+    updateProject: async (
+        projectId: string,
+        payload: Partial<PersistedProjectInput>
+    ) =>
+        requestJson<{ project: PersistedProjectSummary }>(
+            `/api/projects/${projectId}`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
+    deleteProject: async (projectId: string) =>
+        requestJson<{ ok: boolean }>(`/api/projects/${projectId}`, {
+            method: 'DELETE',
+        }),
     listProjectDiagrams: async (
         projectId: string,
         options?: { view?: 'summary' | 'full'; search?: string }
@@ -99,6 +158,17 @@ export const persistenceClient = {
     },
     getDiagram: async (diagramId: string) =>
         requestJson<PersistedDiagramRecord>(`/api/diagrams/${diagramId}`),
+    updateDiagram: async (
+        diagramId: string,
+        payload: PersistedDiagramUpdateInput
+    ) =>
+        requestJson<{ diagram: PersistedDiagramRecord }>(
+            `/api/diagrams/${diagramId}`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
     upsertDiagram: async (
         diagramId: string,
         payload: {
