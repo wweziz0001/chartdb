@@ -29,6 +29,10 @@ const createOidcEnv = (): ServerEnv => {
         authEmail: null,
         authPassword: null,
         authDisplayName: 'ChartDB Owner',
+        bootstrapSetupCode: null,
+        bootstrapSetupCodeTtlMs: 15 * 60 * 1000,
+        bootstrapSetupCodeMaxAttempts: 10,
+        bootstrapAdminEmail: 'owner@example.com',
         sessionTtlHours: 24,
         sessionCookieName: 'chartdb_session',
         sessionCookieSecure: false,
@@ -183,6 +187,7 @@ describe('oidc auth routes', () => {
                 user: expect.objectContaining({
                     email: 'owner@example.com',
                     authProvider: 'oidc',
+                    role: 'admin',
                 }),
             })
         );
@@ -226,6 +231,7 @@ describe('oidc auth routes', () => {
             displayName: 'Existing Owner',
             authProvider: 'local',
             status: 'active',
+            role: 'member',
             ownershipScope: 'personal',
             passwordHash: null,
             passwordUpdatedAt: null,

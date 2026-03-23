@@ -54,6 +54,21 @@ describe('parseServerEnv', () => {
         expect(env.sessionTtlHours).toBeGreaterThan(0);
         expect(env.sessionCookieName.length).toBeGreaterThan(0);
         expect(env.oidcScopes).toBe('openid profile email');
+        expect(env.bootstrapSetupCodeTtlMs).toBeGreaterThan(0);
+        expect(env.bootstrapSetupCodeMaxAttempts).toBeGreaterThan(0);
+    });
+
+    it('requires env-assisted password bootstrap credentials to be set together', () => {
+        expect(() =>
+            parseServerEnv(
+                createEnvInput({
+                    CHARTDB_AUTH_MODE: 'password',
+                    CHARTDB_AUTH_EMAIL: 'owner@example.com',
+                })
+            )
+        ).toThrow(
+            /CHARTDB_AUTH_EMAIL and CHARTDB_AUTH_PASSWORD must be set together/
+        );
     });
 
     it('requires issuer, client id, and redirect url when oidc mode is enabled', () => {
