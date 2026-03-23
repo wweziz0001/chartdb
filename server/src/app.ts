@@ -11,12 +11,14 @@ import { registerAuthRoutes } from './routes/auth-routes.js';
 import { registerHealthRoutes } from './routes/health-routes.js';
 import { registerPersistenceRoutes } from './routes/persistence-routes.js';
 import { registerSchemaSyncRoutes } from './routes/schema-sync-routes.js';
+import type { OidcClientProvider } from './services/oidc-provider.js';
 import { AppError } from './utils/app-error.js';
 
 export const buildApp = (options?: {
     env?: ServerEnv;
     metadataRepository?: MetadataRepository;
     appRepository?: AppRepository;
+    oidcProvider?: OidcClientProvider;
 }) => {
     const env = options?.env ?? serverEnv;
     const app = Fastify({
@@ -25,6 +27,7 @@ export const buildApp = (options?: {
     const context = createAppContext(env, {
         metadataRepository: options?.metadataRepository,
         appRepository: options?.appRepository,
+        oidcProvider: options?.oidcProvider,
     });
 
     app.register(cors, {
@@ -35,12 +38,15 @@ export const buildApp = (options?: {
 
     app.addHook('onRequest', async (request, reply) => {
         request.auth = await context.authService.authenticateRequest(request);
+        const requestPath = request.url.split('?')[0];
 
         const isPublicApiRoute =
-            request.url === '/api/health' ||
-            request.url === '/api/auth/session' ||
-            request.url === '/api/auth/login' ||
-            request.url === '/api/auth/logout';
+            requestPath === '/api/health' ||
+            requestPath === '/api/auth/session' ||
+            requestPath === '/api/auth/login' ||
+            requestPath === '/api/auth/logout' ||
+            requestPath === '/api/auth/oidc/start' ||
+            requestPath === '/api/auth/oidc/callback';
 
         if (
             request.url.startsWith('/api') &&

@@ -4,11 +4,12 @@ import type { PersistedUserSummary } from '@/features/persistence/api/persistenc
 export interface AuthContextValue {
     ready: boolean;
     serverReachable: boolean;
-    mode: 'disabled' | 'password';
+    mode: 'disabled' | 'password' | 'oidc';
     enabled: boolean;
     authenticated: boolean;
     user: PersistedUserSummary | null;
     login: (payload: { email: string; password: string }) => Promise<void>;
+    startOidcLogin: (returnTo?: string) => void;
     logout: () => Promise<void>;
     refreshSession: () => Promise<void>;
 }
