@@ -5,11 +5,13 @@ import { TooltipProvider } from './components/tooltip/tooltip';
 import { HelmetData } from './helmet/helmet-data';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider } from './features/auth/context/auth-provider';
+import { BootstrapPage } from './features/auth/components/bootstrap-page';
 import { SignInPage } from './features/auth/components/sign-in-page';
 import { useAuth } from './features/auth/hooks/use-auth';
 
 const AppContent = () => {
-    const { ready, enabled, authenticated, serverReachable } = useAuth();
+    const { ready, enabled, authenticated, serverReachable, bootstrap } =
+        useAuth();
 
     if (!ready) {
         return (
@@ -22,6 +24,10 @@ const AppContent = () => {
     }
 
     if (serverReachable && enabled && !authenticated) {
+        if (bootstrap.required) {
+            return <BootstrapPage />;
+        }
+
         return <SignInPage />;
     }
 

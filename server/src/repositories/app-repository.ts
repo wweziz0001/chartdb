@@ -8,6 +8,7 @@ import {
     projectVisibilitySchema,
     type DiagramDocument,
     userAuthProviderSchema,
+    userRoleSchema,
     userStatusSchema,
 } from '../schemas/persistence.js';
 
@@ -17,6 +18,7 @@ export interface AppUserRecord {
     displayName: string;
     authProvider: 'placeholder' | 'local' | 'oidc';
     status: 'provisioned' | 'active' | 'disabled';
+    role: 'member' | 'admin';
     ownershipScope: 'personal' | 'workspace';
     createdAt: string;
     updatedAt: string;
@@ -262,6 +264,13 @@ export class AppRepository {
                     ON app_user_identities(user_id, provider);
                 `,
             },
+            {
+                version: 5,
+                sql: `
+                    ALTER TABLE app_users
+                    ADD COLUMN role TEXT NOT NULL DEFAULT 'member';
+                `,
+            },
         ] as const;
 
         for (const migration of migrations) {
@@ -322,16 +331,17 @@ export class AppRepository {
             .prepare(
                 `
                 INSERT INTO app_users (
-                    id, email, display_name, auth_provider, status,
+                    id, email, display_name, auth_provider, status, role,
                     ownership_scope, password_hash, password_updated_at,
                     last_login_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     email = excluded.email,
                     display_name = excluded.display_name,
                     auth_provider = excluded.auth_provider,
                     status = excluded.status,
+                    role = excluded.role,
                     ownership_scope = excluded.ownership_scope,
                     password_hash = excluded.password_hash,
                     password_updated_at = excluded.password_updated_at,
@@ -345,6 +355,7 @@ export class AppRepository {
                 user.displayName,
                 user.authProvider,
                 user.status,
+                user.role,
                 user.ownershipScope,
                 user.passwordHash,
                 user.passwordUpdatedAt,
@@ -359,7 +370,7 @@ export class AppRepository {
             .prepare(
                 `
                 SELECT id, email, display_name, auth_provider, status,
-                    ownership_scope, created_at, updated_at
+                    role, ownership_scope, created_at, updated_at
                 FROM app_users
                 WHERE id = ?
                 `
@@ -375,7 +386,7 @@ export class AppRepository {
                 `
                 SELECT
                     id, email, display_name, auth_provider, status,
-                    ownership_scope, password_hash, password_updated_at,
+                    role, ownership_scope, password_hash, password_updated_at,
                     last_login_at, created_at, updated_at
                 FROM app_users
                 WHERE id = ?
@@ -392,13 +403,46 @@ export class AppRepository {
                 `
                 SELECT
                     id, email, display_name, auth_provider, status,
-                    ownership_scope, password_hash, password_updated_at,
+                    role, ownership_scope, password_hash, password_updated_at,
                     last_login_at, created_at, updated_at
                 FROM app_users
                 WHERE lower(email) = lower(?)
                 `
             )
             .get(email) as Record<string, unknown> | undefined;
+
+        return row ? this.mapUserAuth(row) : undefined;
+    }
+
+    countActiveAdmins(): number {
+        const row = this.db
+            .prepare(
+                `
+                SELECT count(*) AS count
+                FROM app_users
+                WHERE role = 'admin' AND status = 'active'
+                `
+            )
+            .get() as { count: number };
+
+        return Number(row.count);
+    }
+
+    getFirstActiveAdmin(): AppUserAuthRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT
+                    id, email, display_name, auth_provider, status,
+                    role, ownership_scope, password_hash, password_updated_at,
+                    last_login_at, created_at, updated_at
+                FROM app_users
+                WHERE role = 'admin' AND status = 'active'
+                ORDER BY created_at ASC
+                LIMIT 1
+                `
+            )
+            .get() as Record<string, unknown> | undefined;
 
         return row ? this.mapUserAuth(row) : undefined;
     }
@@ -744,6 +788,7 @@ export class AppRepository {
             displayName: String(row.display_name),
             authProvider: userAuthProviderSchema.parse(row.auth_provider),
             status: userStatusSchema.parse(row.status),
+            role: userRoleSchema.parse(row.role),
             ownershipScope: ownershipScopeSchema.parse(row.ownership_scope),
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),

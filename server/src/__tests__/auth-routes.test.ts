@@ -20,6 +20,10 @@ const createAuthEnv = (): ServerEnv => {
         authEmail: 'owner@example.com',
         authPassword: 'super-secret-password',
         authDisplayName: 'Owner',
+        bootstrapSetupCode: null,
+        bootstrapSetupCodeTtlMs: 15 * 60 * 1000,
+        bootstrapSetupCodeMaxAttempts: 10,
+        bootstrapAdminEmail: null,
         sessionTtlHours: 24,
         sessionCookieName: 'chartdb_session',
         sessionCookieSecure: false,
@@ -74,6 +78,10 @@ describe('auth routes', () => {
                 enabled: true,
                 authenticated: false,
                 user: null,
+                bootstrap: expect.objectContaining({
+                    required: false,
+                    completed: true,
+                }),
             })
         );
 

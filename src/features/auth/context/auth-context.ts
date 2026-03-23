@@ -8,6 +8,17 @@ export interface AuthContextValue {
     enabled: boolean;
     authenticated: boolean;
     user: PersistedUserSummary | null;
+    bootstrap: {
+        required: boolean;
+        completed: boolean;
+        setupCodeRequired: boolean;
+    };
+    bootstrapAdmin: (payload: {
+        email: string;
+        password: string;
+        displayName: string;
+        setupCode: string;
+    }) => Promise<void>;
     login: (payload: { email: string; password: string }) => Promise<void>;
     startOidcLogin: (returnTo?: string) => void;
     logout: () => Promise<void>;

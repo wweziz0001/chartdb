@@ -9,6 +9,7 @@ export const registerHealthRoutes = (
         const bootstrap = context.authService.isEnabled()
             ? null
             : context.persistenceService.bootstrap();
+        const authBootstrap = context.authService.getBootstrapStatus();
         return {
             ok: true,
             service: 'chartdb-api',
@@ -16,6 +17,11 @@ export const registerHealthRoutes = (
             persistence: {
                 app: 'sqlite',
                 schemaSync: 'sqlite',
+            },
+            auth: {
+                mode: context.env.authMode,
+                bootstrapRequired: authBootstrap.required,
+                adminInitialized: authBootstrap.completed,
             },
             defaultProjectId: bootstrap?.defaultProject.id ?? null,
             timestamp: new Date().toISOString(),

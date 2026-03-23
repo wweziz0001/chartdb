@@ -9,6 +9,11 @@ const defaultSessionState: AuthSessionResponse = {
     authenticated: false,
     user: null,
     logoutUrl: null,
+    bootstrap: {
+        required: false,
+        completed: false,
+        setupCodeRequired: false,
+    },
 };
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({
@@ -34,6 +39,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
                             : currentSession.mode,
                     enabled: true,
                     logoutUrl: currentSession.logoutUrl,
+                    bootstrap: currentSession.bootstrap,
                 }));
                 setServerReachable(true);
             } else {
@@ -48,6 +54,19 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
     const login = useCallback(
         async (payload: { email: string; password: string }) => {
             await authClient.login(payload);
+            await refreshSession();
+        },
+        [refreshSession]
+    );
+
+    const bootstrapAdmin = useCallback(
+        async (payload: {
+            email: string;
+            password: string;
+            displayName: string;
+            setupCode: string;
+        }) => {
+            await authClient.bootstrap(payload);
             await refreshSession();
         },
         [refreshSession]
@@ -73,6 +92,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
                 authenticated: false,
                 user: null,
                 logoutUrl: currentSession.logoutUrl,
+                bootstrap: currentSession.bootstrap,
             }));
         }
     }, [session.logoutUrl]);
@@ -107,6 +127,8 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
                 enabled: session.enabled,
                 authenticated: session.authenticated,
                 user: session.user,
+                bootstrap: session.bootstrap,
+                bootstrapAdmin,
                 login,
                 startOidcLogin,
                 logout,

@@ -7,11 +7,26 @@ export interface AuthSessionResponse {
     authenticated: boolean;
     user: PersistedUserSummary | null;
     logoutUrl: string | null;
+    bootstrap: {
+        required: boolean;
+        completed: boolean;
+        setupCodeRequired: boolean;
+    };
 }
 
 export const authClient = {
     getSession: async () =>
         requestJson<AuthSessionResponse>('/api/auth/session'),
+    bootstrap: async (payload: {
+        email: string;
+        password: string;
+        displayName: string;
+        setupCode: string;
+    }) =>
+        requestJson<{ user: PersistedUserSummary }>('/api/auth/bootstrap', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
     login: async (payload: { email: string; password: string }) =>
         requestJson<{ user: PersistedUserSummary }>('/api/auth/login', {
             method: 'POST',

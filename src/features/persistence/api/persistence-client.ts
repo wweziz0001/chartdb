@@ -12,6 +12,7 @@ export interface PersistedUserSummary {
     displayName: string;
     authProvider: 'placeholder' | 'local' | 'oidc';
     status: 'provisioned' | 'active' | 'disabled';
+    role: 'member' | 'admin';
     ownershipScope: 'personal' | 'workspace';
     createdAt: string;
     updatedAt: string;
