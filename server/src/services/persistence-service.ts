@@ -44,6 +44,7 @@ export interface CollectionSummary extends CollectionRecord {
 
 const DEFAULT_USER_CONFIG_KEY = 'default_user_id';
 const DEFAULT_PROJECT_CONFIG_KEY = 'default_project_id';
+const DEFAULT_PROJECT_CONFIG_PREFIX = 'default_project_id:';
 const CHARTDB_BACKUP_FORMAT = 'chartdb-backup';
 const CHARTDB_BACKUP_FORMAT_VERSION = 1;
 
@@ -70,7 +71,15 @@ export class PersistenceService {
         }
     ) {}
 
-    bootstrap(): BootstrapResult {
+    bootstrap(actor?: AppUserRecord | null): BootstrapResult {
+        if (actor) {
+            return this.bootstrapForUser(actor);
+        }
+
+        return this.bootstrapAnonymous();
+    }
+
+    private bootstrapAnonymous(): BootstrapResult {
         const now = new Date().toISOString();
         let userId = this.repository.getConfigValue(DEFAULT_USER_CONFIG_KEY);
         let projectId = this.repository.getConfigValue(
@@ -103,6 +112,40 @@ export class PersistenceService {
                 DEFAULT_PROJECT_CONFIG_KEY,
                 projectId
             );
+        }
+
+        let defaultProject = this.repository.getProject(projectId);
+        if (!defaultProject) {
+            defaultProject = {
+                id: projectId,
+                name: this.defaults.defaultProjectName,
+                description: 'Default self-hosted ChartDB project',
+                collectionId: null,
+                ownerUserId: user.id,
+                visibility: 'private',
+                status: 'active',
+                createdAt: now,
+                updatedAt: now,
+            };
+            this.repository.putProject(defaultProject);
+        }
+
+        return { user, defaultProject };
+    }
+
+    private bootstrapForUser(actor: AppUserRecord): BootstrapResult {
+        const now = new Date().toISOString();
+        const user = this.repository.getUser(actor.id) ?? actor;
+
+        if (!this.repository.getUser(actor.id)) {
+            this.repository.putUser(user);
+        }
+
+        const configKey = `${DEFAULT_PROJECT_CONFIG_PREFIX}${user.id}`;
+        let projectId = this.repository.getConfigValue(configKey);
+        if (!projectId) {
+            projectId = generateId();
+            this.repository.setConfigValue(configKey, projectId);
         }
 
         let defaultProject = this.repository.getProject(projectId);
@@ -211,9 +254,12 @@ export class PersistenceService {
         });
     }
 
-    createCollection(input: unknown): CollectionRecord {
+    createCollection(
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): CollectionRecord {
         const payload = createCollectionSchema.parse(input);
-        const bootstrap = this.bootstrap();
+        const bootstrap = this.bootstrap(actor);
         const now = new Date().toISOString();
         const collection: CollectionRecord = {
             id: generateId(),
@@ -266,9 +312,9 @@ export class PersistenceService {
         this.repository.deleteCollection(collectionId);
     }
 
-    createProject(input: unknown): ProjectRecord {
+    createProject(input: unknown, actor?: AppUserRecord | null): ProjectRecord {
         const payload = createProjectSchema.parse(input);
-        const bootstrap = this.bootstrap();
+        const bootstrap = this.bootstrap(actor);
         const now = new Date().toISOString();
         const collectionId = this.resolveCollectionId(payload.collectionId);
         const project: ProjectRecord = {
@@ -386,7 +432,11 @@ export class PersistenceService {
         return this.toDiagramResponse(diagram);
     }
 
-    upsertDiagram(diagramId: string, input: unknown) {
+    upsertDiagram(
+        diagramId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ) {
         const payload = upsertDiagramSchema.parse(input);
         const project = this.repository.getProject(payload.projectId);
         if (!project) {
@@ -406,6 +456,7 @@ export class PersistenceService {
             ownerUserId:
                 payload.ownerUserId ??
                 existing?.ownerUserId ??
+                actor?.id ??
                 project.ownerUserId ??
                 null,
             name: document.name,
@@ -621,7 +672,7 @@ export class PersistenceService {
         };
     }
 
-    importBackup(input: unknown) {
+    importBackup(input: unknown, actor?: AppUserRecord | null) {
         const envelope = chartDbBackupEnvelopeSchema.parse(input);
 
         if (envelope.format !== CHARTDB_BACKUP_FORMAT) {
@@ -643,7 +694,7 @@ export class PersistenceService {
         const archive = chartDbBackupArchiveSchema.parse(input);
         this.validateBackupArchive(archive);
 
-        const bootstrap = this.bootstrap();
+        const bootstrap = this.bootstrap(actor);
 
         return this.repository.transaction(() => {
             const collectionIdMap = new Map<string, string>();

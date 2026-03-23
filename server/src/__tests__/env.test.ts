@@ -14,5 +14,7 @@ describe('serverEnv', () => {
         expect(serverEnv.host.length).toBeGreaterThan(0);
         expect(serverEnv.logLevel.length).toBeGreaterThan(0);
         expect(serverEnv.encryptionKey.byteLength).toBeGreaterThan(0);
+        expect(serverEnv.sessionTtlHours).toBeGreaterThan(0);
+        expect(serverEnv.sessionCookieName.length).toBeGreaterThan(0);
     });
 });

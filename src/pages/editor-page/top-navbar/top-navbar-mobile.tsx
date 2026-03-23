@@ -7,10 +7,12 @@ import { Button } from '@/components/button/button';
 import { useSidebar } from '@/components/sidebar/use-sidebar';
 import { MenuIcon } from 'lucide-react';
 import { SchemaSyncToolbarButton } from '@/features/schema-sync/components/schema-sync-toolbar-button';
+import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export interface TopNavbarMobileProps {}
 
 export const TopNavbarMobile: React.FC<TopNavbarMobileProps> = () => {
+    const { enabled, logout } = useAuth();
     const renderStars = useCallback(() => {
         return (
             <iframe
@@ -51,6 +53,15 @@ export const TopNavbarMobile: React.FC<TopNavbarMobileProps> = () => {
 
                     <div className="flex items-center gap-2">
                         <SchemaSyncToolbarButton />
+                        {enabled ? (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void logout()}
+                            >
+                                Log out
+                            </Button>
+                        ) : null}
                         {renderStars()}
                         <LanguageNav />
                     </div>

@@ -135,6 +135,7 @@ Saved-project behavior now looks like this:
 
 See [Project Collections](./docs/project-collections.md) for the organization model.
 See [Project Backup Format](./docs/project-backup-format.md) for the backup/import archive format.
+See [Optional Authentication](./docs/optional-authentication.md) for password-protected self-hosted deployments.
 
 ### Full Local Stack With Docker
 
@@ -147,6 +148,27 @@ This starts:
 - `web` on `http://localhost:8080`
 - `api` on `http://localhost:4010`
 - `postgres` on `localhost:5432`
+
+### Optional Authentication
+
+ChartDB supports two self-hosted modes:
+
+- `CHARTDB_AUTH_MODE=disabled`
+  Keeps the existing lightweight flow. The app uses the backend when it is available and falls back to browser-local storage when it is not.
+- `CHARTDB_AUTH_MODE=password`
+  Requires users to log in before accessing protected backend routes. Sessions are stored server-side and issued through an HTTP-only cookie.
+
+Minimal password-auth setup:
+
+```dotenv
+CHARTDB_AUTH_MODE=password
+CHARTDB_AUTH_EMAIL=owner@example.com
+CHARTDB_AUTH_PASSWORD=replace-with-a-long-random-password
+CHARTDB_AUTH_DISPLAY_NAME=ChartDB Owner
+CHARTDB_CORS_ORIGIN=http://localhost:8080
+```
+
+Production note: when password auth is enabled, `CHARTDB_CORS_ORIGIN` must be an explicit origin, not `*`.
 
 ### Environment Variables
 
@@ -162,6 +184,13 @@ Key variables:
 - `CHARTDB_APP_DB_PATH`: optional override for the self-hosted app persistence database
 - `CHARTDB_METADATA_DB_PATH`: optional override for the schema-sync metadata database
 - `CHARTDB_LOG_LEVEL`: Fastify/Pino log level
+- `CHARTDB_AUTH_MODE`: `disabled` or `password`
+- `CHARTDB_AUTH_EMAIL`: local login email for password mode
+- `CHARTDB_AUTH_PASSWORD`: local login password for password mode
+- `CHARTDB_AUTH_DISPLAY_NAME`: display name for the bootstrap local account
+- `CHARTDB_SESSION_TTL_HOURS`: session lifetime in hours
+- `CHARTDB_SESSION_COOKIE_NAME`: session cookie name
+- `CHARTDB_SESSION_COOKIE_SECURE`: optional `true`/`false` override for the cookie `Secure` flag
 - `CHARTDB_DEFAULT_PROJECT_NAME`: initial self-hosted project name
 - `CHARTDB_DEFAULT_OWNER_NAME`: initial placeholder owner name
 - `CHARTDB_CORS_ORIGIN`: backend CORS policy
@@ -182,6 +211,9 @@ npm run dev -w @chartdb/server
 Useful backend endpoints:
 
 - `GET /api/health`
+- `GET /api/auth/session`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
 - `GET /api/app/bootstrap`
 - `GET /api/collections`
 - `POST /api/collections`
@@ -231,12 +263,14 @@ npm run dev:web
 See [docs/schema-sync-architecture.md](./docs/schema-sync-architecture.md) for the detailed design.
 See [docs/backend-persistence-foundation.md](./docs/backend-persistence-foundation.md) for the self-hosted backend/persistence foundation.
 See [docs/project-backup-format.md](./docs/project-backup-format.md) for the saved project backup and restore workflow.
+See [docs/optional-authentication.md](./docs/optional-authentication.md) for optional password authentication.
 
 ## Security Considerations
 
 - Browser clients never connect directly to PostgreSQL.
 - Raw database passwords are never returned to the browser after submission.
 - Connection secrets are encrypted at rest using application-level AES-256-GCM.
+- Password authentication uses salted `scrypt` hashes and server-side session invalidation.
 - The UI cannot execute arbitrary SQL.
 - Apply only executes server-generated plans.
 - Destructive operations require explicit confirmation text.

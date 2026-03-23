@@ -6,7 +6,9 @@ export const registerHealthRoutes = (
     context: AppContext
 ) => {
     app.get('/api/health', async () => {
-        const bootstrap = context.persistenceService.bootstrap();
+        const bootstrap = context.authService.isEnabled()
+            ? null
+            : context.persistenceService.bootstrap();
         return {
             ok: true,
             service: 'chartdb-api',
@@ -15,7 +17,7 @@ export const registerHealthRoutes = (
                 app: 'sqlite',
                 schemaSync: 'sqlite',
             },
-            defaultProjectId: bootstrap.defaultProject.id,
+            defaultProjectId: bootstrap?.defaultProject.id ?? null,
             timestamp: new Date().toISOString(),
         };
     });

@@ -22,6 +22,24 @@ export interface AppUserRecord {
     updatedAt: string;
 }
 
+export interface AppUserAuthRecord extends AppUserRecord {
+    passwordHash: string | null;
+    passwordUpdatedAt: string | null;
+    lastLoginAt: string | null;
+}
+
+export interface AppSessionRecord {
+    id: string;
+    userId: string;
+    tokenHash: string;
+    createdAt: string;
+    lastSeenAt: string;
+    expiresAt: string;
+    invalidatedAt: string | null;
+    ipAddress: string | null;
+    userAgent: string | null;
+}
+
 export interface ProjectRecord {
     id: string;
     name: string;
@@ -180,6 +198,35 @@ export class AppRepository {
                     ON app_projects(collection_id, updated_at DESC);
                 `,
             },
+            {
+                version: 3,
+                sql: `
+                    ALTER TABLE app_users
+                    ADD COLUMN password_hash TEXT;
+
+                    ALTER TABLE app_users
+                    ADD COLUMN password_updated_at TEXT;
+
+                    ALTER TABLE app_users
+                    ADD COLUMN last_login_at TEXT;
+
+                    CREATE TABLE IF NOT EXISTS app_sessions (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        token_hash TEXT NOT NULL UNIQUE,
+                        created_at TEXT NOT NULL,
+                        last_seen_at TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        invalidated_at TEXT,
+                        ip_address TEXT,
+                        user_agent TEXT,
+                        FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_app_sessions_user
+                    ON app_sessions(user_id, expires_at DESC);
+                `,
+            },
         ] as const;
 
         for (const migration of migrations) {
@@ -227,20 +274,33 @@ export class AppRepository {
     }
 
     putUser(user: AppUserRecord) {
+        this.putUserAuthRecord({
+            ...user,
+            passwordHash: null,
+            passwordUpdatedAt: null,
+            lastLoginAt: null,
+        });
+    }
+
+    putUserAuthRecord(user: AppUserAuthRecord) {
         this.db
             .prepare(
                 `
                 INSERT INTO app_users (
                     id, email, display_name, auth_provider, status,
-                    ownership_scope, created_at, updated_at
+                    ownership_scope, password_hash, password_updated_at,
+                    last_login_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     email = excluded.email,
                     display_name = excluded.display_name,
                     auth_provider = excluded.auth_provider,
                     status = excluded.status,
                     ownership_scope = excluded.ownership_scope,
+                    password_hash = excluded.password_hash,
+                    password_updated_at = excluded.password_updated_at,
+                    last_login_at = excluded.last_login_at,
                     updated_at = excluded.updated_at
                 `
             )
@@ -251,6 +311,9 @@ export class AppRepository {
                 user.authProvider,
                 user.status,
                 user.ownershipScope,
+                user.passwordHash,
+                user.passwordUpdatedAt,
+                user.lastLoginAt,
                 user.createdAt,
                 user.updatedAt
             );
@@ -269,6 +332,101 @@ export class AppRepository {
             .get(id) as Record<string, unknown> | undefined;
 
         return row ? this.mapUser(row) : undefined;
+    }
+
+    getUserAuthById(id: string): AppUserAuthRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT
+                    id, email, display_name, auth_provider, status,
+                    ownership_scope, password_hash, password_updated_at,
+                    last_login_at, created_at, updated_at
+                FROM app_users
+                WHERE id = ?
+                `
+            )
+            .get(id) as Record<string, unknown> | undefined;
+
+        return row ? this.mapUserAuth(row) : undefined;
+    }
+
+    getUserAuthByEmail(email: string): AppUserAuthRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT
+                    id, email, display_name, auth_provider, status,
+                    ownership_scope, password_hash, password_updated_at,
+                    last_login_at, created_at, updated_at
+                FROM app_users
+                WHERE lower(email) = lower(?)
+                `
+            )
+            .get(email) as Record<string, unknown> | undefined;
+
+        return row ? this.mapUserAuth(row) : undefined;
+    }
+
+    putSession(session: AppSessionRecord) {
+        this.db
+            .prepare(
+                `
+                INSERT INTO app_sessions (
+                    id, user_id, token_hash, created_at, last_seen_at,
+                    expires_at, invalidated_at, ip_address, user_agent
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    token_hash = excluded.token_hash,
+                    last_seen_at = excluded.last_seen_at,
+                    expires_at = excluded.expires_at,
+                    invalidated_at = excluded.invalidated_at,
+                    ip_address = excluded.ip_address,
+                    user_agent = excluded.user_agent
+                `
+            )
+            .run(
+                session.id,
+                session.userId,
+                session.tokenHash,
+                session.createdAt,
+                session.lastSeenAt,
+                session.expiresAt,
+                session.invalidatedAt,
+                session.ipAddress,
+                session.userAgent
+            );
+    }
+
+    getSessionByTokenHash(tokenHash: string): AppSessionRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT
+                    id, user_id, token_hash, created_at, last_seen_at,
+                    expires_at, invalidated_at, ip_address, user_agent
+                FROM app_sessions
+                WHERE token_hash = ?
+                `
+            )
+            .get(tokenHash) as Record<string, unknown> | undefined;
+
+        return row ? this.mapSession(row) : undefined;
+    }
+
+    invalidateSession(id: string, invalidatedAt: string) {
+        this.db
+            .prepare(
+                `
+                UPDATE app_sessions
+                SET invalidated_at = ?,
+                    last_seen_at = ?
+                WHERE id = ?
+                `
+            )
+            .run(invalidatedAt, invalidatedAt, id);
     }
 
     listCollections(): CollectionRecord[] {
@@ -500,6 +658,33 @@ export class AppRepository {
             ownershipScope: ownershipScopeSchema.parse(row.ownership_scope),
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
+        };
+    }
+
+    private mapUserAuth(row: Record<string, unknown>): AppUserAuthRecord {
+        return {
+            ...this.mapUser(row),
+            passwordHash: row.password_hash ? String(row.password_hash) : null,
+            passwordUpdatedAt: row.password_updated_at
+                ? String(row.password_updated_at)
+                : null,
+            lastLoginAt: row.last_login_at ? String(row.last_login_at) : null,
+        };
+    }
+
+    private mapSession(row: Record<string, unknown>): AppSessionRecord {
+        return {
+            id: String(row.id),
+            userId: String(row.user_id),
+            tokenHash: String(row.token_hash),
+            createdAt: String(row.created_at),
+            lastSeenAt: String(row.last_seen_at),
+            expiresAt: String(row.expires_at),
+            invalidatedAt: row.invalidated_at
+                ? String(row.invalidated_at)
+                : null,
+            ipAddress: row.ip_address ? String(row.ip_address) : null,
+            userAgent: row.user_agent ? String(row.user_agent) : null,
         };
     }
 
