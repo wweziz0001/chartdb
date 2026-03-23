@@ -40,6 +40,18 @@ export interface AppSessionRecord {
     userAgent: string | null;
 }
 
+export interface AppUserIdentityRecord {
+    id: string;
+    userId: string;
+    provider: 'oidc';
+    issuer: string;
+    subject: string;
+    emailAtLink: string;
+    lastLoginAt: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface ProjectRecord {
     id: string;
     name: string;
@@ -225,6 +237,29 @@ export class AppRepository {
 
                     CREATE INDEX IF NOT EXISTS idx_app_sessions_user
                     ON app_sessions(user_id, expires_at DESC);
+                `,
+            },
+            {
+                version: 4,
+                sql: `
+                    CREATE TABLE IF NOT EXISTS app_user_identities (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        issuer TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        email_at_link TEXT NOT NULL,
+                        last_login_at TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
+                    );
+
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_identities_provider_subject
+                    ON app_user_identities(provider, issuer, subject);
+
+                    CREATE INDEX IF NOT EXISTS idx_app_user_identities_user
+                    ON app_user_identities(user_id, provider);
                 `,
             },
         ] as const;
@@ -427,6 +462,60 @@ export class AppRepository {
                 `
             )
             .run(invalidatedAt, invalidatedAt, id);
+    }
+
+    putUserIdentity(identity: AppUserIdentityRecord) {
+        this.db
+            .prepare(
+                `
+                INSERT INTO app_user_identities (
+                    id, user_id, provider, issuer, subject, email_at_link,
+                    last_login_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    provider = excluded.provider,
+                    issuer = excluded.issuer,
+                    subject = excluded.subject,
+                    email_at_link = excluded.email_at_link,
+                    last_login_at = excluded.last_login_at,
+                    updated_at = excluded.updated_at
+                `
+            )
+            .run(
+                identity.id,
+                identity.userId,
+                identity.provider,
+                identity.issuer,
+                identity.subject,
+                identity.emailAtLink,
+                identity.lastLoginAt,
+                identity.createdAt,
+                identity.updatedAt
+            );
+    }
+
+    getUserIdentityByProviderSubject(
+        provider: AppUserIdentityRecord['provider'],
+        issuer: string,
+        subject: string
+    ): AppUserIdentityRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT
+                    id, user_id, provider, issuer, subject, email_at_link,
+                    last_login_at, created_at, updated_at
+                FROM app_user_identities
+                WHERE provider = ? AND issuer = ? AND subject = ?
+                `
+            )
+            .get(provider, issuer, subject) as
+            | Record<string, unknown>
+            | undefined;
+
+        return row ? this.mapUserIdentity(row) : undefined;
     }
 
     listCollections(): CollectionRecord[] {
@@ -685,6 +774,22 @@ export class AppRepository {
                 : null,
             ipAddress: row.ip_address ? String(row.ip_address) : null,
             userAgent: row.user_agent ? String(row.user_agent) : null,
+        };
+    }
+
+    private mapUserIdentity(
+        row: Record<string, unknown>
+    ): AppUserIdentityRecord {
+        return {
+            id: String(row.id),
+            userId: String(row.user_id),
+            provider: 'oidc',
+            issuer: String(row.issuer),
+            subject: String(row.subject),
+            emailAtLink: String(row.email_at_link),
+            lastLoginAt: String(row.last_login_at),
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
         };
     }
 
