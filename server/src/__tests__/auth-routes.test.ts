@@ -23,6 +23,12 @@ const createAuthEnv = (): ServerEnv => {
         sessionTtlHours: 24,
         sessionCookieName: 'chartdb_session',
         sessionCookieSecure: false,
+        oidcIssuer: null,
+        oidcClientId: null,
+        oidcClientSecret: null,
+        oidcRedirectUrl: null,
+        oidcLogoutUrl: null,
+        oidcScopes: 'openid profile email',
         dataDir,
         metadataDbPath: path.join(dataDir, 'schema-sync.sqlite'),
         appDbPath: path.join(dataDir, 'chartdb-app.sqlite'),
@@ -164,7 +170,7 @@ describe('auth routes', () => {
             },
         });
         expect(logoutResponse.statusCode).toBe(200);
-        expect(logoutResponse.json()).toEqual({ ok: true });
+        expect(logoutResponse.json()).toEqual({ ok: true, logoutUrl: null });
 
         const postLogoutResponse = await app.inject({
             method: 'GET',

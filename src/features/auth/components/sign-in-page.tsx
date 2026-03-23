@@ -13,10 +13,13 @@ import { RequestError } from '@/lib/api/request';
 import { useAuth } from '../hooks/use-auth';
 
 export const SignInPage: React.FC = () => {
-    const { login } = useAuth();
+    const { login, mode, startOidcLogin } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState<string | null>(null);
+    const searchParams = new URLSearchParams(window.location.search);
+    const [error, setError] = useState<string | null>(
+        searchParams.get('authErrorMessage')
+    );
     const [submitting, setSubmitting] = useState(false);
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -57,61 +60,87 @@ export const SignInPage: React.FC = () => {
                             Sign in to ChartDB
                         </CardTitle>
                         <CardDescription className="text-stone-400">
-                            Password authentication is enabled for this
-                            deployment.
+                            {mode === 'oidc'
+                                ? 'Single sign-on is enabled for this deployment.'
+                                : 'Password authentication is enabled for this deployment.'}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form className="space-y-4" onSubmit={handleSubmit}>
-                            <div className="space-y-2">
-                                <label
-                                    className="text-sm font-medium text-stone-200"
-                                    htmlFor="chartdb-email"
-                                >
-                                    Email
-                                </label>
-                                <Input
-                                    id="chartdb-email"
-                                    type="email"
-                                    value={email}
-                                    onChange={(event) =>
-                                        setEmail(event.target.value)
-                                    }
-                                    autoComplete="email"
-                                    required
-                                    className="border-stone-700 bg-stone-950/70 text-stone-50"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label
-                                    className="text-sm font-medium text-stone-200"
-                                    htmlFor="chartdb-password"
-                                >
-                                    Password
-                                </label>
-                                <Input
-                                    id="chartdb-password"
-                                    type="password"
-                                    value={password}
-                                    onChange={(event) =>
-                                        setPassword(event.target.value)
-                                    }
-                                    autoComplete="current-password"
-                                    required
-                                    className="border-stone-700 bg-stone-950/70 text-stone-50"
-                                />
-                            </div>
+                            {mode === 'password' ? (
+                                <>
+                                    <div className="space-y-2">
+                                        <label
+                                            className="text-sm font-medium text-stone-200"
+                                            htmlFor="chartdb-email"
+                                        >
+                                            Email
+                                        </label>
+                                        <Input
+                                            id="chartdb-email"
+                                            type="email"
+                                            value={email}
+                                            onChange={(event) =>
+                                                setEmail(event.target.value)
+                                            }
+                                            autoComplete="email"
+                                            required
+                                            className="border-stone-700 bg-stone-950/70 text-stone-50"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label
+                                            className="text-sm font-medium text-stone-200"
+                                            htmlFor="chartdb-password"
+                                        >
+                                            Password
+                                        </label>
+                                        <Input
+                                            id="chartdb-password"
+                                            type="password"
+                                            value={password}
+                                            onChange={(event) =>
+                                                setPassword(event.target.value)
+                                            }
+                                            autoComplete="current-password"
+                                            required
+                                            className="border-stone-700 bg-stone-950/70 text-stone-50"
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                <p className="text-sm leading-6 text-stone-300">
+                                    Continue with your identity provider to
+                                    access this ChartDB deployment.
+                                </p>
+                            )}
                             {error ? (
                                 <p className="text-sm text-amber-300">
                                     {error}
                                 </p>
                             ) : null}
                             <Button
-                                type="submit"
+                                type={mode === 'oidc' ? 'button' : 'submit'}
                                 className="w-full bg-amber-400 text-stone-950 hover:bg-amber-300"
                                 disabled={submitting}
+                                onClick={
+                                    mode === 'oidc'
+                                        ? () => {
+                                              setSubmitting(true);
+                                              startOidcLogin(
+                                                  `${window.location.pathname}${window.location.hash}`
+                                              );
+                                          }
+                                        : undefined
+                                }
                             >
-                                {submitting ? 'Signing in...' : 'Sign in'}
+                                {submitting
+                                    ? mode === 'oidc'
+                                        ? 'Redirecting...'
+                                        : 'Signing in...'
+                                    : mode === 'oidc'
+                                      ? 'Continue with Single Sign-On'
+                                      : 'Sign in'}
                             </Button>
                         </form>
                     </CardContent>

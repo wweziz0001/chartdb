@@ -5,4 +5,4 @@ export const loginRequestSchema = z.object({
     password: z.string().min(1).max(4096),
 });
 
-export const authModeSchema = z.enum(['disabled', 'password']);
+export const authModeSchema = z.enum(['disabled', 'password', 'oidc']);

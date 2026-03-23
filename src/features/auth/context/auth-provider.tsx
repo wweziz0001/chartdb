@@ -8,6 +8,7 @@ const defaultSessionState: AuthSessionResponse = {
     enabled: false,
     authenticated: false,
     user: null,
+    logoutUrl: null,
 };
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({
@@ -25,12 +26,15 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
             setServerReachable(true);
         } catch (error) {
             if (error instanceof RequestError && error.status === 401) {
-                setSession({
-                    mode: 'password',
+                setSession((currentSession) => ({
+                    ...defaultSessionState,
+                    mode:
+                        currentSession.mode === 'disabled'
+                            ? 'password'
+                            : currentSession.mode,
                     enabled: true,
-                    authenticated: false,
-                    user: null,
-                });
+                    logoutUrl: currentSession.logoutUrl,
+                }));
                 setServerReachable(true);
             } else {
                 setSession(defaultSessionState);
@@ -49,18 +53,29 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
         [refreshSession]
     );
 
+    const startOidcLogin = useCallback((returnTo?: string) => {
+        authClient.startOidcLogin(returnTo);
+    }, []);
+
     const logout = useCallback(async () => {
+        const currentLogoutUrl = session.logoutUrl;
         try {
-            await authClient.logout();
+            const response = await authClient.logout();
+            const redirectUrl = response.logoutUrl ?? currentLogoutUrl;
+            if (redirectUrl) {
+                window.location.assign(redirectUrl);
+                return;
+            }
         } finally {
             setSession((currentSession) => ({
                 mode: currentSession.mode,
                 enabled: currentSession.enabled,
                 authenticated: false,
                 user: null,
+                logoutUrl: currentSession.logoutUrl,
             }));
         }
-    }, []);
+    }, [session.logoutUrl]);
 
     useEffect(() => {
         void refreshSession();
@@ -93,6 +108,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({
                 authenticated: session.authenticated,
                 user: session.user,
                 login,
+                startOidcLogin,
                 logout,
                 refreshSession,
             }}

@@ -4,6 +4,7 @@ import { MetadataRepository } from '../repositories/metadata-repository.js';
 import { ApplyService } from '../services/apply-service.js';
 import { AuthService } from '../services/auth-service.js';
 import { ConnectionsService } from '../services/connections-service.js';
+import type { OidcClientProvider } from '../services/oidc-provider.js';
 import { PersistenceService } from '../services/persistence-service.js';
 import { SchemaSyncService } from '../services/schema-sync-service.js';
 
@@ -24,6 +25,7 @@ export const createAppContext = (
     options?: {
         metadataRepository?: MetadataRepository;
         appRepository?: AppRepository;
+        oidcProvider?: OidcClientProvider;
     }
 ): AppContext => {
     const metadataRepository =
@@ -31,7 +33,11 @@ export const createAppContext = (
         new MetadataRepository(env.metadataDbPath);
     const appRepository =
         options?.appRepository ?? new AppRepository(env.appDbPath);
-    const authService = new AuthService(appRepository, env);
+    const authService = new AuthService(
+        appRepository,
+        env,
+        options?.oidcProvider
+    );
     const connectionsService = new ConnectionsService(
         metadataRepository,
         env.encryptionKey

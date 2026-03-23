@@ -1,6 +1,6 @@
 # Optional Authentication
 
-ChartDB now supports an optional password-based authentication mode for self-hosted deployments.
+ChartDB supports optional authentication for self-hosted deployments.
 
 ## Modes
 
@@ -8,8 +8,10 @@ ChartDB now supports an optional password-based authentication mode for self-hos
   Keeps the current lightweight behavior. If the backend is reachable, ChartDB bootstraps a placeholder local owner and persists data there. If the backend is unavailable, the editor continues in browser-local mode.
 - `CHARTDB_AUTH_MODE=password`
   Requires a login before protected API routes can be used. The configured local user is stored in the app database, project ownership is attached to that user, and sessions are issued through an HTTP-only cookie.
+- `CHARTDB_AUTH_MODE=oidc`
+  Delegates sign-in to an OpenID Connect provider such as Keycloak while still issuing ChartDB's own HTTP-only session cookie for protected API access.
 
-OIDC is intentionally out of scope for this change.
+See [OIDC Authentication](./oidc-authentication.md) for the OIDC-specific setup guide, Keycloak example, and reverse-proxy notes.
 
 ## Required environment variables
 
