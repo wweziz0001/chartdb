@@ -414,6 +414,28 @@ export class AppRepository {
         return row ? this.mapUserAuth(row) : undefined;
     }
 
+    listUserAuthRecords(): AppUserAuthRecord[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT
+                    id, email, display_name, auth_provider, status,
+                    role, ownership_scope, password_hash, password_updated_at,
+                    last_login_at, created_at, updated_at
+                FROM app_users
+                ORDER BY
+                    CASE role
+                        WHEN 'admin' THEN 0
+                        ELSE 1
+                    END ASC,
+                    created_at ASC
+                `
+            )
+            .all() as Array<Record<string, unknown>>;
+
+        return rows.map((row) => this.mapUserAuth(row));
+    }
+
     countActiveAdmins(): number {
         const row = this.db
             .prepare(
@@ -424,6 +446,21 @@ export class AppRepository {
                 `
             )
             .get() as { count: number };
+
+        return Number(row.count);
+    }
+
+    countActiveSessions(referenceTime = new Date().toISOString()): number {
+        const row = this.db
+            .prepare(
+                `
+                SELECT count(*) AS count
+                FROM app_sessions
+                WHERE invalidated_at IS NULL
+                  AND expires_at > ?
+                `
+            )
+            .get(referenceTime) as { count: number };
 
         return Number(row.count);
     }

@@ -7,6 +7,7 @@ import { buildLoggerOptions } from './config/logger.js';
 import { createAppContext } from './context/app-context.js';
 import type { AppRepository } from './repositories/app-repository.js';
 import type { MetadataRepository } from './repositories/metadata-repository.js';
+import { registerAdminRoutes } from './routes/admin-routes.js';
 import { registerAuthRoutes } from './routes/auth-routes.js';
 import { registerHealthRoutes } from './routes/health-routes.js';
 import { registerPersistenceRoutes } from './routes/persistence-routes.js';
@@ -87,6 +88,7 @@ export const buildApp = (options?: {
     });
 
     registerAuthRoutes(app, context);
+    registerAdminRoutes(app, context);
     registerHealthRoutes(app, context);
     registerPersistenceRoutes(app, context);
     registerSchemaSyncRoutes(app, context);
