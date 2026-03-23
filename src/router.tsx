@@ -130,6 +130,22 @@ const routes: RouteObject[] = [
         },
     },
     {
+        path: 'admin',
+        async lazy() {
+            const { AdminRouteGuard } =
+                await import('./features/admin/components/admin-route-guard');
+            const { AdminPage } = await import('./pages/admin-page/admin-page');
+
+            return {
+                element: (
+                    <AdminRouteGuard>
+                        <AdminPage />
+                    </AdminRouteGuard>
+                ),
+            };
+        },
+    },
+    {
         path: '*',
         async lazy() {
             const { NotFoundPage } =

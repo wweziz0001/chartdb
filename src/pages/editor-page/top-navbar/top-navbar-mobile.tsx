@@ -8,11 +8,13 @@ import { useSidebar } from '@/components/sidebar/use-sidebar';
 import { MenuIcon } from 'lucide-react';
 import { SchemaSyncToolbarButton } from '@/features/schema-sync/components/schema-sync-toolbar-button';
 import { useAuth } from '@/features/auth/hooks/use-auth';
+import { Link } from 'react-router-dom';
 
 export interface TopNavbarMobileProps {}
 
 export const TopNavbarMobile: React.FC<TopNavbarMobileProps> = () => {
-    const { enabled, logout } = useAuth();
+    const { enabled, user, logout } = useAuth();
+    const isAdmin = enabled && user?.role === 'admin';
     const renderStars = useCallback(() => {
         return (
             <iframe
@@ -53,6 +55,11 @@ export const TopNavbarMobile: React.FC<TopNavbarMobileProps> = () => {
 
                     <div className="flex items-center gap-2">
                         <SchemaSyncToolbarButton />
+                        {isAdmin ? (
+                            <Button asChild size="sm" variant="outline">
+                                <Link to="/admin">Admin</Link>
+                            </Button>
+                        ) : null}
                         {enabled ? (
                             <Button
                                 size="sm"
