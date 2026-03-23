@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import { ZodError } from 'zod';
 import { serverEnv, type ServerEnv } from './config/env.js';
@@ -6,6 +7,7 @@ import { buildLoggerOptions } from './config/logger.js';
 import { createAppContext } from './context/app-context.js';
 import type { AppRepository } from './repositories/app-repository.js';
 import type { MetadataRepository } from './repositories/metadata-repository.js';
+import { registerAuthRoutes } from './routes/auth-routes.js';
 import { registerHealthRoutes } from './routes/health-routes.js';
 import { registerPersistenceRoutes } from './routes/persistence-routes.js';
 import { registerSchemaSyncRoutes } from './routes/schema-sync-routes.js';
@@ -27,6 +29,30 @@ export const buildApp = (options?: {
 
     app.register(cors, {
         origin: env.corsOrigin === '*' ? true : env.corsOrigin,
+        credentials: env.authMode !== 'disabled',
+    });
+    app.register(cookie);
+
+    app.addHook('onRequest', async (request, reply) => {
+        request.auth = await context.authService.authenticateRequest(request);
+
+        const isPublicApiRoute =
+            request.url === '/api/health' ||
+            request.url === '/api/auth/session' ||
+            request.url === '/api/auth/login' ||
+            request.url === '/api/auth/logout';
+
+        if (
+            request.url.startsWith('/api') &&
+            context.authService.isEnabled() &&
+            !isPublicApiRoute &&
+            !request.auth.authenticated
+        ) {
+            return reply.code(401).send({
+                error: 'Authentication required.',
+                code: 'AUTH_REQUIRED',
+            });
+        }
     });
 
     app.setErrorHandler((error, request, reply) => {
@@ -53,6 +79,7 @@ export const buildApp = (options?: {
         });
     });
 
+    registerAuthRoutes(app, context);
     registerHealthRoutes(app, context);
     registerPersistenceRoutes(app, context);
     registerSchemaSyncRoutes(app, context);

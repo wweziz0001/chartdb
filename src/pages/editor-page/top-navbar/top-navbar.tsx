@@ -7,11 +7,14 @@ import { LastSaved } from './last-saved';
 import { LanguageNav } from './language-nav/language-nav';
 import { Menu } from './menu/menu';
 import { SchemaSyncToolbarButton } from '@/features/schema-sync/components/schema-sync-toolbar-button';
+import { Button } from '@/components/button/button';
+import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export interface TopNavbarProps {}
 
 export const TopNavbar: React.FC<TopNavbarProps> = () => {
     const { effectiveTheme } = useTheme();
+    const { enabled, user, logout } = useAuth();
 
     const renderStars = useCallback(() => {
         return (
@@ -50,6 +53,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
             <div className="hidden flex-1 items-center justify-end gap-2 sm:flex">
                 <SchemaSyncToolbarButton />
                 <LastSaved />
+                {enabled ? (
+                    <>
+                        <span className="max-w-40 truncate text-sm text-muted-foreground">
+                            {user?.displayName ??
+                                user?.email ??
+                                'Authenticated'}
+                        </span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void logout()}
+                        >
+                            Log out
+                        </Button>
+                    </>
+                ) : null}
                 {renderStars()}
                 <LanguageNav />
             </div>

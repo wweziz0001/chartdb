@@ -13,6 +13,7 @@
     },
     "dependencies": {
         "@chartdb/schema-sync-core": "file:../packages/schema-sync-core",
+        "@fastify/cookie": "^11.0.2",
         "@fastify/cors": "^11.1.0",
         "better-sqlite3": "^11.10.0",
         "dotenv": "^17.2.3",

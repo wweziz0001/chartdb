@@ -3,11 +3,22 @@ import { API_BASE_URL } from '@/lib/env';
 export const apiPath = (path: string) =>
     `${API_BASE_URL}${path.startsWith('/api') ? path : `/api${path}`}`;
 
+export class RequestError extends Error {
+    constructor(
+        message: string,
+        public readonly status: number
+    ) {
+        super(message);
+        this.name = 'RequestError';
+    }
+}
+
 export const requestJson = async <T>(
     path: string,
     init?: RequestInit
 ): Promise<T> => {
     const response = await fetch(apiPath(path), {
+        credentials: 'include',
         headers: {
             'Content-Type': 'application/json',
             ...(init?.headers ?? {}),
@@ -36,7 +47,10 @@ export const requestJson = async <T>(
                           : ''
                   }`
                 : `Request to ${path} failed`;
-        throw new Error(error);
+        if (response.status === 401) {
+            window.dispatchEvent(new CustomEvent('chartdb:auth-unauthorized'));
+        }
+        throw new RequestError(error, response.status);
     }
 
     return payload as T;

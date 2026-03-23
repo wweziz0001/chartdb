@@ -11,12 +11,15 @@ export const registerPersistenceRoutes = (
 
     app.post('/api/backups/import', async (request) => {
         return {
-            import: context.persistenceService.importBackup(request.body),
+            import: context.persistenceService.importBackup(
+                request.body,
+                request.auth.user
+            ),
         };
     });
 
-    app.get('/api/app/bootstrap', async () => {
-        return context.persistenceService.bootstrap();
+    app.get('/api/app/bootstrap', async (request) => {
+        return context.persistenceService.bootstrap(request.auth.user);
     });
 
     app.get('/api/collections', async () => {
@@ -28,7 +31,8 @@ export const registerPersistenceRoutes = (
     app.post('/api/collections', async (request) => {
         return {
             collection: context.persistenceService.createCollection(
-                request.body
+                request.body,
+                request.auth.user
             ),
         };
     });
@@ -66,7 +70,10 @@ export const registerPersistenceRoutes = (
 
     app.post('/api/projects', async (request) => {
         return {
-            project: context.persistenceService.createProject(request.body),
+            project: context.persistenceService.createProject(
+                request.body,
+                request.auth.user
+            ),
         };
     });
 
@@ -106,7 +113,8 @@ export const registerPersistenceRoutes = (
         return {
             diagram: context.persistenceService.upsertDiagram(
                 params.id,
-                request.body
+                request.body,
+                request.auth.user
             ),
         };
     });
