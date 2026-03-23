@@ -151,16 +151,25 @@ This starts:
 
 ### Optional Authentication
 
-ChartDB supports two self-hosted modes:
+ChartDB supports three self-hosted modes:
 
 - `CHARTDB_AUTH_MODE=disabled`
   Keeps the existing lightweight flow. The app uses the backend when it is available and falls back to browser-local storage when it is not.
 - `CHARTDB_AUTH_MODE=password`
-  Requires users to log in before accessing protected backend routes. Sessions are stored server-side and issued through an HTTP-only cookie.
+  Requires users to log in before accessing protected backend routes. The first administrator is initialized through a one-time bootstrap flow and sessions are stored server-side in an HTTP-only cookie.
 - `CHARTDB_AUTH_MODE=oidc`
-  Redirects users to an OpenID Connect provider such as Keycloak, then issues a ChartDB session cookie after the callback is validated.
+  Redirects users to an OpenID Connect provider such as Keycloak, then issues a ChartDB session cookie after the callback is validated. The first admin is assigned to the configured bootstrap OIDC email.
 
 Minimal password-auth setup:
+
+```dotenv
+CHARTDB_AUTH_MODE=password
+CHARTDB_CORS_ORIGIN=http://localhost:8080
+CHARTDB_SECRET_KEY=replace-with-a-long-random-secret
+CHARTDB_BOOTSTRAP_SETUP_CODE=replace-with-a-one-time-random-code
+```
+
+Environment-assisted first-admin bootstrap:
 
 ```dotenv
 CHARTDB_AUTH_MODE=password
@@ -168,9 +177,11 @@ CHARTDB_AUTH_EMAIL=owner@example.com
 CHARTDB_AUTH_PASSWORD=replace-with-a-long-random-password
 CHARTDB_AUTH_DISPLAY_NAME=ChartDB Owner
 CHARTDB_CORS_ORIGIN=http://localhost:8080
+CHARTDB_SECRET_KEY=replace-with-a-long-random-secret
 ```
 
 Production note: when authentication is enabled, `CHARTDB_CORS_ORIGIN` must be an explicit origin, not `*`.
+If you omit `CHARTDB_BOOTSTRAP_SETUP_CODE`, ChartDB generates a short-lived setup code and logs it while the deployment is still uninitialized.
 
 Minimal OIDC setup:
 
@@ -178,6 +189,7 @@ Minimal OIDC setup:
 CHARTDB_AUTH_MODE=oidc
 CHARTDB_CORS_ORIGIN=http://localhost:5173
 CHARTDB_SECRET_KEY=replace-with-a-long-random-secret
+CHARTDB_BOOTSTRAP_ADMIN_EMAIL=owner@example.com
 CHARTDB_OIDC_ISSUER=https://sso.example.com/realms/chartdb
 CHARTDB_OIDC_CLIENT_ID=chartdb
 CHARTDB_OIDC_CLIENT_SECRET=replace-with-your-client-secret
@@ -202,9 +214,13 @@ Key variables:
 - `CHARTDB_METADATA_DB_PATH`: optional override for the schema-sync metadata database
 - `CHARTDB_LOG_LEVEL`: Fastify/Pino log level
 - `CHARTDB_AUTH_MODE`: `disabled`, `password`, or `oidc`
-- `CHARTDB_AUTH_EMAIL`: local login email for password mode
-- `CHARTDB_AUTH_PASSWORD`: local login password for password mode
-- `CHARTDB_AUTH_DISPLAY_NAME`: display name for the bootstrap local account
+- `CHARTDB_AUTH_EMAIL`: optional one-time environment-assisted first-admin email for password mode
+- `CHARTDB_AUTH_PASSWORD`: optional one-time environment-assisted first-admin password for password mode
+- `CHARTDB_AUTH_DISPLAY_NAME`: display name for the environment-assisted bootstrap local account
+- `CHARTDB_BOOTSTRAP_SETUP_CODE`: optional operator-managed setup code for interactive password bootstrap
+- `CHARTDB_BOOTSTRAP_SETUP_CODE_TTL_MS`: lifetime for generated interactive bootstrap setup codes
+- `CHARTDB_BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS`: failed-attempt threshold before interactive bootstrap locks
+- `CHARTDB_BOOTSTRAP_ADMIN_EMAIL`: OIDC email that should become the first administrator during bootstrap
 - `CHARTDB_SESSION_TTL_HOURS`: session lifetime in hours
 - `CHARTDB_SESSION_COOKIE_NAME`: session cookie name
 - `CHARTDB_SESSION_COOKIE_SECURE`: optional `true`/`false` override for the cookie `Secure` flag
@@ -235,6 +251,7 @@ Useful backend endpoints:
 
 - `GET /api/health`
 - `GET /api/auth/session`
+- `POST /api/auth/bootstrap`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/oidc/start`
