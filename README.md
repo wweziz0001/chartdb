@@ -135,7 +135,7 @@ Saved-project behavior now looks like this:
 
 See [Project Collections](./docs/project-collections.md) for the organization model.
 See [Project Backup Format](./docs/project-backup-format.md) for the backup/import archive format.
-See [Optional Authentication](./docs/optional-authentication.md) for password-protected self-hosted deployments.
+See [Optional Authentication](./docs/optional-authentication.md) for self-hosted auth modes and [OIDC Authentication](./docs/oidc-authentication.md) for enterprise SSO setup.
 
 ### Full Local Stack With Docker
 
@@ -157,6 +157,8 @@ ChartDB supports two self-hosted modes:
   Keeps the existing lightweight flow. The app uses the backend when it is available and falls back to browser-local storage when it is not.
 - `CHARTDB_AUTH_MODE=password`
   Requires users to log in before accessing protected backend routes. Sessions are stored server-side and issued through an HTTP-only cookie.
+- `CHARTDB_AUTH_MODE=oidc`
+  Redirects users to an OpenID Connect provider such as Keycloak, then issues a ChartDB session cookie after the callback is validated.
 
 Minimal password-auth setup:
 
@@ -168,7 +170,22 @@ CHARTDB_AUTH_DISPLAY_NAME=ChartDB Owner
 CHARTDB_CORS_ORIGIN=http://localhost:8080
 ```
 
-Production note: when password auth is enabled, `CHARTDB_CORS_ORIGIN` must be an explicit origin, not `*`.
+Production note: when authentication is enabled, `CHARTDB_CORS_ORIGIN` must be an explicit origin, not `*`.
+
+Minimal OIDC setup:
+
+```dotenv
+CHARTDB_AUTH_MODE=oidc
+CHARTDB_CORS_ORIGIN=http://localhost:5173
+CHARTDB_SECRET_KEY=replace-with-a-long-random-secret
+CHARTDB_OIDC_ISSUER=https://sso.example.com/realms/chartdb
+CHARTDB_OIDC_CLIENT_ID=chartdb
+CHARTDB_OIDC_CLIENT_SECRET=replace-with-your-client-secret
+CHARTDB_OIDC_REDIRECT_URL=http://localhost:5173/api/auth/oidc/callback
+```
+
+If you want logout to continue to the provider, also set `CHARTDB_OIDC_LOGOUT_URL`.
+See [docs/oidc-authentication.md](./docs/oidc-authentication.md) for the full Keycloak example and reverse-proxy guidance.
 
 ### Environment Variables
 
@@ -184,13 +201,19 @@ Key variables:
 - `CHARTDB_APP_DB_PATH`: optional override for the self-hosted app persistence database
 - `CHARTDB_METADATA_DB_PATH`: optional override for the schema-sync metadata database
 - `CHARTDB_LOG_LEVEL`: Fastify/Pino log level
-- `CHARTDB_AUTH_MODE`: `disabled` or `password`
+- `CHARTDB_AUTH_MODE`: `disabled`, `password`, or `oidc`
 - `CHARTDB_AUTH_EMAIL`: local login email for password mode
 - `CHARTDB_AUTH_PASSWORD`: local login password for password mode
 - `CHARTDB_AUTH_DISPLAY_NAME`: display name for the bootstrap local account
 - `CHARTDB_SESSION_TTL_HOURS`: session lifetime in hours
 - `CHARTDB_SESSION_COOKIE_NAME`: session cookie name
 - `CHARTDB_SESSION_COOKIE_SECURE`: optional `true`/`false` override for the cookie `Secure` flag
+- `CHARTDB_OIDC_ISSUER`: OIDC issuer URL for OIDC mode
+- `CHARTDB_OIDC_CLIENT_ID`: OIDC client ID for OIDC mode
+- `CHARTDB_OIDC_CLIENT_SECRET`: optional OIDC client secret for confidential clients
+- `CHARTDB_OIDC_REDIRECT_URL`: callback URL registered with the OIDC provider
+- `CHARTDB_OIDC_LOGOUT_URL`: optional provider logout URL to continue to after local logout
+- `CHARTDB_OIDC_SCOPES`: optional OIDC scopes, defaults to `openid profile email`
 - `CHARTDB_DEFAULT_PROJECT_NAME`: initial self-hosted project name
 - `CHARTDB_DEFAULT_OWNER_NAME`: initial placeholder owner name
 - `CHARTDB_CORS_ORIGIN`: backend CORS policy
@@ -214,6 +237,8 @@ Useful backend endpoints:
 - `GET /api/auth/session`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
+- `GET /api/auth/oidc/start`
+- `GET /api/auth/oidc/callback`
 - `GET /api/app/bootstrap`
 - `GET /api/collections`
 - `POST /api/collections`
@@ -263,7 +288,7 @@ npm run dev:web
 See [docs/schema-sync-architecture.md](./docs/schema-sync-architecture.md) for the detailed design.
 See [docs/backend-persistence-foundation.md](./docs/backend-persistence-foundation.md) for the self-hosted backend/persistence foundation.
 See [docs/project-backup-format.md](./docs/project-backup-format.md) for the saved project backup and restore workflow.
-See [docs/optional-authentication.md](./docs/optional-authentication.md) for optional password authentication.
+See [docs/optional-authentication.md](./docs/optional-authentication.md) for optional auth modes and [docs/oidc-authentication.md](./docs/oidc-authentication.md) for OIDC and Keycloak setup.
 
 ## Security Considerations
 
@@ -271,6 +296,7 @@ See [docs/optional-authentication.md](./docs/optional-authentication.md) for opt
 - Raw database passwords are never returned to the browser after submission.
 - Connection secrets are encrypted at rest using application-level AES-256-GCM.
 - Password authentication uses salted `scrypt` hashes and server-side session invalidation.
+- OIDC authentication validates authorization code callbacks with PKCE, `state`, and a signed flow cookie before issuing a ChartDB session.
 - The UI cannot execute arbitrary SQL.
 - Apply only executes server-generated plans.
 - Destructive operations require explicit confirmation text.
