@@ -134,6 +134,7 @@ Saved-project behavior now looks like this:
 - Browser-local Dexie storage still acts as the editor working cache, but the backend becomes the durable source of truth for saved projects when it is reachable.
 
 See [Project Collections](./docs/project-collections.md) for the organization model.
+See [Project Backup Format](./docs/project-backup-format.md) for the backup/import archive format.
 
 ### Full Local Stack With Docker
 
@@ -229,6 +230,7 @@ npm run dev:web
 
 See [docs/schema-sync-architecture.md](./docs/schema-sync-architecture.md) for the detailed design.
 See [docs/backend-persistence-foundation.md](./docs/backend-persistence-foundation.md) for the self-hosted backend/persistence foundation.
+See [docs/project-backup-format.md](./docs/project-backup-format.md) for the saved project backup and restore workflow.
 
 ## Security Considerations
 

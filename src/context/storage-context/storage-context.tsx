@@ -9,6 +9,11 @@ import type { Area } from '@/lib/domain/area';
 import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import type { Note } from '@/lib/domain/note';
+import type {
+    ChartDbBackupArchive,
+    ExportBackupRequest,
+    ImportBackupResult,
+} from '@/lib/project-backup/project-backup-format';
 
 export interface SavedCollection {
     id: string;
@@ -118,6 +123,12 @@ export interface StorageContext {
             collectionId?: string | null;
         };
     }) => Promise<Diagram | undefined>;
+    exportBackup: (
+        request: ExportBackupRequest
+    ) => Promise<ChartDbBackupArchive>;
+    importBackup: (
+        archive: ChartDbBackupArchive
+    ) => Promise<ImportBackupResult>;
 
     // Diagram filter operations
     getDiagramFilter: (diagramId: string) => Promise<DiagramFilter | undefined>;
@@ -274,6 +285,8 @@ export const storageInitialValue: StorageContext = {
     updateSavedDiagram: emptyFn,
     saveDiagram: emptyFn,
     saveDiagramAs: emptyFn,
+    exportBackup: emptyFn,
+    importBackup: emptyFn,
 
     getDiagramFilter: emptyFn,
     updateDiagramFilter: emptyFn,

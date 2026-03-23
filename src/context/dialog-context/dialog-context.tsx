@@ -10,6 +10,8 @@ import type { CreateRelationshipDialogProps } from '@/dialogs/create-relationshi
 import type { OpenDiagramDialogProps } from '@/dialogs/open-diagram-dialog/open-diagram-dialog';
 import type { CreateDiagramDialogProps } from '@/dialogs/create-diagram-dialog/create-diagram-dialog';
 import type { SaveDiagramDialogProps } from '@/dialogs/save-diagram-dialog/save-diagram-dialog';
+import type { ExportBackupDialogProps } from '@/dialogs/export-backup-dialog/export-backup-dialog';
+import type { ImportBackupDialogProps } from '@/dialogs/import-backup-dialog/import-backup-dialog';
 
 export interface DialogContext {
     // Create diagram dialog
@@ -73,6 +75,18 @@ export interface DialogContext {
         params: Omit<ImportDiagramDialogProps, 'dialog'>
     ) => void;
     closeImportDiagramDialog: () => void;
+
+    // Export backup dialog
+    openExportBackupDialog: (
+        params?: Omit<ExportBackupDialogProps, 'dialog'>
+    ) => void;
+    closeExportBackupDialog: () => void;
+
+    // Import backup dialog
+    openImportBackupDialog: (
+        params?: Omit<ImportBackupDialogProps, 'dialog'>
+    ) => void;
+    closeImportBackupDialog: () => void;
 }
 
 export const dialogContext = createContext<DialogContext>({
@@ -98,4 +112,8 @@ export const dialogContext = createContext<DialogContext>({
     closeExportDiagramDialog: emptyFn,
     openImportDiagramDialog: emptyFn,
     closeImportDiagramDialog: emptyFn,
+    openExportBackupDialog: emptyFn,
+    closeExportBackupDialog: emptyFn,
+    openImportBackupDialog: emptyFn,
+    closeImportBackupDialog: emptyFn,
 });

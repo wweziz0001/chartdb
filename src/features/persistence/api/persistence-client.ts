@@ -1,5 +1,10 @@
 import { requestJson } from '@/lib/api/request';
 import type { Diagram } from '@/lib/domain/diagram';
+import type {
+    ChartDbBackupArchive,
+    ExportBackupRequest,
+    ImportBackupResult,
+} from '@/lib/project-backup/project-backup-format';
 
 export interface PersistedUserSummary {
     id: string;
@@ -129,6 +134,16 @@ export const deserializeDiagramSummary = (
 });
 
 export const persistenceClient = {
+    exportBackup: async (payload: ExportBackupRequest) =>
+        requestJson<ChartDbBackupArchive>('/api/backups/export', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+    importBackup: async (payload: ChartDbBackupArchive) =>
+        requestJson<{ import: ImportBackupResult }>('/api/backups/import', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
     bootstrap: async () => requestJson<BootstrapResponse>('/api/app/bootstrap'),
     listCollections: async () =>
         requestJson<{ items: PersistedCollectionSummary[] }>(

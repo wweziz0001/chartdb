@@ -29,6 +29,11 @@ import {
     type PersistedDiagramRecord,
 } from '@/features/persistence/api/persistence-client';
 import { cloneDiagram } from '@/lib/clone';
+import type {
+    ChartDbBackupArchive,
+    ExportBackupRequest,
+    ImportBackupResult,
+} from '@/lib/project-backup/project-backup-format';
 
 interface CachedCollectionRecord extends Omit<
     SavedCollection,
@@ -1939,6 +1944,36 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         ]
     );
 
+    const exportBackup: StorageContext['exportBackup'] = useCallback(
+        async (request: ExportBackupRequest): Promise<ChartDbBackupArchive> => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'Project backup export requires ChartDB server persistence.'
+                );
+            }
+
+            return await persistenceClient.exportBackup(request);
+        },
+        [ensureRemotePersistenceReady]
+    );
+
+    const importBackup: StorageContext['importBackup'] = useCallback(
+        async (archive: ChartDbBackupArchive): Promise<ImportBackupResult> => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'Project backup import requires ChartDB server persistence.'
+                );
+            }
+
+            const response = await persistenceClient.importBackup(archive);
+            await syncRemoteCatalog();
+            return response.import;
+        },
+        [ensureRemotePersistenceReady, syncRemoteCatalog]
+    );
+
     const addDiagram: StorageContext['addDiagram'] = useCallback(
         async ({ diagram }) => {
             await replaceLocalDiagramSnapshot(diagram);
@@ -2100,6 +2135,8 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 updateSavedDiagram,
                 saveDiagram,
                 saveDiagramAs,
+                exportBackup,
+                importBackup,
                 addDiagram,
                 listDiagrams,
                 getDiagram,
