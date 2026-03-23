@@ -13,8 +13,10 @@ export const buildLoggerOptions = (
         'req.headers.authorization',
         'req.body.connection.secret.password',
         'req.body.password',
+        'req.body.setupCode',
         'req.body.secret',
         'password',
+        'setupCode',
         'secret',
     ],
 });

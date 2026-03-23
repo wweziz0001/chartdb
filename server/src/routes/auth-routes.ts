@@ -14,7 +14,13 @@ export const registerAuthRoutes = (
             authenticated: session.authenticated,
             user: session.user,
             logoutUrl: session.logoutUrl,
+            bootstrap: session.bootstrap,
         };
+    });
+
+    app.post('/api/auth/bootstrap', async (request, reply) => {
+        reply.code(201);
+        return context.authService.bootstrap(request, reply, request.body);
     });
 
     app.post('/api/auth/login', async (request, reply) => {

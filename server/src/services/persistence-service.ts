@@ -99,6 +99,7 @@ export class PersistenceService {
                 displayName: this.defaults.defaultOwnerName,
                 authProvider: 'placeholder',
                 status: 'provisioned',
+                role: 'admin',
                 ownershipScope: 'personal',
                 createdAt: now,
                 updatedAt: now,

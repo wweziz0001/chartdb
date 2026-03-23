@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const userAuthProviderSchema = z.enum(['placeholder', 'local', 'oidc']);
 export const userStatusSchema = z.enum(['provisioned', 'active', 'disabled']);
+export const userRoleSchema = z.enum(['member', 'admin']);
 export const ownershipScopeSchema = z.enum(['personal', 'workspace']);
 
 export const projectVisibilitySchema = z.enum([

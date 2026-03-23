@@ -43,6 +43,7 @@ export const buildApp = (options?: {
         const isPublicApiRoute =
             requestPath === '/api/health' ||
             requestPath === '/api/auth/session' ||
+            requestPath === '/api/auth/bootstrap' ||
             requestPath === '/api/auth/login' ||
             requestPath === '/api/auth/logout' ||
             requestPath === '/api/auth/oidc/start' ||

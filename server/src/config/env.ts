@@ -52,6 +52,20 @@ const envSchema = z.object({
         .max(120)
         .optional()
         .default('ChartDB Owner'),
+    CHARTDB_BOOTSTRAP_SETUP_CODE: z.string().trim().min(8).max(120).optional(),
+    CHARTDB_BOOTSTRAP_SETUP_CODE_TTL_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .default(15 * 60 * 1000),
+    CHARTDB_BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .default(10),
+    CHARTDB_BOOTSTRAP_ADMIN_EMAIL: z.string().trim().email().optional(),
     CHARTDB_SESSION_TTL_HOURS: z.coerce
         .number()
         .int()
@@ -122,6 +136,10 @@ export interface ServerEnv {
     authEmail: string | null;
     authPassword: string | null;
     authDisplayName: string;
+    bootstrapSetupCode: string | null;
+    bootstrapSetupCodeTtlMs: number;
+    bootstrapSetupCodeMaxAttempts: number;
+    bootstrapAdminEmail: string | null;
     sessionTtlHours: number;
     sessionCookieName: string;
     sessionCookieSecure: boolean;
@@ -154,12 +172,15 @@ export const parseServerEnv = (
             ? parsedEnv.NODE_ENV === 'production'
             : parsedEnv.CHARTDB_SESSION_COOKIE_SECURE === 'true';
 
+    const hasBootstrapEmail = Boolean(parsedEnv.CHARTDB_AUTH_EMAIL);
+    const hasBootstrapPassword = Boolean(parsedEnv.CHARTDB_AUTH_PASSWORD);
+
     if (
         parsedEnv.CHARTDB_AUTH_MODE === 'password' &&
-        (!parsedEnv.CHARTDB_AUTH_EMAIL || !parsedEnv.CHARTDB_AUTH_PASSWORD)
+        hasBootstrapEmail !== hasBootstrapPassword
     ) {
         throw new Error(
-            'CHARTDB_AUTH_EMAIL and CHARTDB_AUTH_PASSWORD must be set when CHARTDB_AUTH_MODE=password.'
+            'CHARTDB_AUTH_EMAIL and CHARTDB_AUTH_PASSWORD must be set together when using environment-assisted password bootstrap.'
         );
     }
 
@@ -224,6 +245,12 @@ export const parseServerEnv = (
         authEmail: parsedEnv.CHARTDB_AUTH_EMAIL?.toLowerCase() ?? null,
         authPassword: parsedEnv.CHARTDB_AUTH_PASSWORD ?? null,
         authDisplayName: parsedEnv.CHARTDB_AUTH_DISPLAY_NAME,
+        bootstrapSetupCode: parsedEnv.CHARTDB_BOOTSTRAP_SETUP_CODE ?? null,
+        bootstrapSetupCodeTtlMs: parsedEnv.CHARTDB_BOOTSTRAP_SETUP_CODE_TTL_MS,
+        bootstrapSetupCodeMaxAttempts:
+            parsedEnv.CHARTDB_BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS,
+        bootstrapAdminEmail:
+            parsedEnv.CHARTDB_BOOTSTRAP_ADMIN_EMAIL?.toLowerCase() ?? null,
         sessionTtlHours: parsedEnv.CHARTDB_SESSION_TTL_HOURS,
         sessionCookieName: parsedEnv.CHARTDB_SESSION_COOKIE_NAME,
         sessionCookieSecure: authCookieSecure,
