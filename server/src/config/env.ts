@@ -39,6 +39,33 @@ const envSchema = z.object({
         .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
         .optional()
         .default('info'),
+    CHARTDB_AUTH_MODE: z
+        .enum(['disabled', 'password'])
+        .optional()
+        .default('disabled'),
+    CHARTDB_AUTH_EMAIL: z.string().trim().email().optional(),
+    CHARTDB_AUTH_PASSWORD: z.string().min(8).optional(),
+    CHARTDB_AUTH_DISPLAY_NAME: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .optional()
+        .default('ChartDB Owner'),
+    CHARTDB_SESSION_TTL_HOURS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .default(24 * 7),
+    CHARTDB_SESSION_COOKIE_NAME: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .optional()
+        .default('chartdb_session'),
+    CHARTDB_SESSION_COOKIE_SECURE: z.enum(['true', 'false']).optional(),
     CHARTDB_DEFAULT_PROJECT_NAME: z.string().optional().default('My Diagrams'),
     CHARTDB_DEFAULT_OWNER_NAME: z.string().optional().default('Local Owner'),
 });
@@ -73,6 +100,29 @@ const resolveSecretKey = (): string => {
 };
 
 const rawEncryptionKey = resolveSecretKey();
+const authCookieSecure =
+    parsedEnv.CHARTDB_SESSION_COOKIE_SECURE === undefined
+        ? parsedEnv.NODE_ENV === 'production'
+        : parsedEnv.CHARTDB_SESSION_COOKIE_SECURE === 'true';
+
+if (
+    parsedEnv.CHARTDB_AUTH_MODE === 'password' &&
+    (!parsedEnv.CHARTDB_AUTH_EMAIL || !parsedEnv.CHARTDB_AUTH_PASSWORD)
+) {
+    throw new Error(
+        'CHARTDB_AUTH_EMAIL and CHARTDB_AUTH_PASSWORD must be set when CHARTDB_AUTH_MODE=password.'
+    );
+}
+
+if (
+    parsedEnv.CHARTDB_AUTH_MODE === 'password' &&
+    parsedEnv.NODE_ENV === 'production' &&
+    parsedEnv.CHARTDB_CORS_ORIGIN === '*'
+) {
+    throw new Error(
+        'CHARTDB_CORS_ORIGIN must be set to an explicit origin in production when password authentication is enabled.'
+    );
+}
 
 export interface ServerEnv {
     nodeEnv: 'development' | 'test' | 'production';
@@ -87,6 +137,13 @@ export interface ServerEnv {
         | 'debug'
         | 'trace'
         | 'silent';
+    authMode: 'disabled' | 'password';
+    authEmail: string | null;
+    authPassword: string | null;
+    authDisplayName: string;
+    sessionTtlHours: number;
+    sessionCookieName: string;
+    sessionCookieSecure: boolean;
     dataDir: string;
     metadataDbPath: string;
     appDbPath: string;
@@ -101,6 +158,13 @@ export const serverEnv: ServerEnv = {
     port: parsedEnv.CHARTDB_API_PORT,
     corsOrigin: parsedEnv.CHARTDB_CORS_ORIGIN,
     logLevel: parsedEnv.CHARTDB_LOG_LEVEL,
+    authMode: parsedEnv.CHARTDB_AUTH_MODE,
+    authEmail: parsedEnv.CHARTDB_AUTH_EMAIL?.toLowerCase() ?? null,
+    authPassword: parsedEnv.CHARTDB_AUTH_PASSWORD ?? null,
+    authDisplayName: parsedEnv.CHARTDB_AUTH_DISPLAY_NAME,
+    sessionTtlHours: parsedEnv.CHARTDB_SESSION_TTL_HOURS,
+    sessionCookieName: parsedEnv.CHARTDB_SESSION_COOKIE_NAME,
+    sessionCookieSecure: authCookieSecure,
     dataDir,
     metadataDbPath: parsedEnv.CHARTDB_METADATA_DB_PATH
         ? path.resolve(parsedEnv.CHARTDB_METADATA_DB_PATH)
