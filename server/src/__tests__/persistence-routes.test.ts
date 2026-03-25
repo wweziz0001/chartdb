@@ -308,6 +308,107 @@ describe('persistence routes', () => {
         await app.close();
     });
 
+    it('creates diagram edit sessions and rejects stale optimistic updates', async () => {
+        const app = buildApp({ env: createTestEnv() });
+        const bootstrap = await app.inject({
+            method: 'GET',
+            url: '/api/app/bootstrap',
+        });
+        const projectId = bootstrap.json().defaultProject.id as string;
+
+        const createDiagramResponse = await app.inject({
+            method: 'PUT',
+            url: '/api/diagrams/diagram-collab-1',
+            payload: {
+                projectId,
+                diagram: {
+                    id: 'ignored',
+                    name: 'Collab Diagram',
+                    databaseType: 'postgresql',
+                    tables: [{ id: 'tbl-1', name: 'users' }],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:00:00.000Z',
+                },
+            },
+        });
+        expect(createDiagramResponse.statusCode).toBe(200);
+        expect(
+            createDiagramResponse.json().diagram.collaboration.document.version
+        ).toBe(1);
+
+        const createSessionResponse = await app.inject({
+            method: 'POST',
+            url: '/api/diagrams/diagram-collab-1/sessions',
+            payload: {
+                mode: 'edit',
+                clientId: 'route-test-client',
+            },
+        });
+        expect(createSessionResponse.statusCode).toBe(200);
+        expect(createSessionResponse.json().session.baseVersion).toBe(1);
+        const sessionId = createSessionResponse.json().session.id as string;
+
+        const firstUpdateResponse = await app.inject({
+            method: 'PUT',
+            url: '/api/diagrams/diagram-collab-1',
+            payload: {
+                projectId,
+                sessionId,
+                baseVersion: 1,
+                diagram: {
+                    id: 'ignored',
+                    name: 'Collab Diagram',
+                    databaseType: 'postgresql',
+                    tables: [
+                        { id: 'tbl-1', name: 'users' },
+                        { id: 'tbl-2', name: 'teams' },
+                    ],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:05:00.000Z',
+                },
+            },
+        });
+        expect(firstUpdateResponse.statusCode).toBe(200);
+        expect(
+            firstUpdateResponse.json().diagram.collaboration.document.version
+        ).toBe(2);
+
+        const staleUpdateResponse = await app.inject({
+            method: 'PUT',
+            url: '/api/diagrams/diagram-collab-1',
+            payload: {
+                projectId,
+                sessionId,
+                baseVersion: 1,
+                diagram: {
+                    id: 'ignored',
+                    name: 'Collab Diagram',
+                    databaseType: 'postgresql',
+                    tables: [{ id: 'tbl-1', name: 'users' }],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:10:00.000Z',
+                },
+            },
+        });
+        expect(staleUpdateResponse.statusCode).toBe(409);
+        expect(staleUpdateResponse.json().code).toBe(
+            'DIAGRAM_VERSION_CONFLICT'
+        );
+
+        const closeSessionResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/diagram-collab-1/sessions/${sessionId}`,
+            payload: {
+                close: true,
+                lastSeenDocumentVersion: 2,
+            },
+        });
+        expect(closeSessionResponse.statusCode).toBe(200);
+        expect(closeSessionResponse.json().session.status).toBe('closed');
+
+        await app.close();
+    });
+
     it('exports and imports versioned backup payloads through the API', async () => {
         const sourceApp = buildApp({ env: createTestEnv() });
         const bootstrap = await sourceApp.inject({

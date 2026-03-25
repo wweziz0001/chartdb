@@ -156,6 +156,82 @@ describe('persistence foundation', () => {
         repository.close();
     });
 
+    it('tracks collaboration document versions and edit sessions for optimistic saves', () => {
+        const { repository, service } = createService();
+        const bootstrap = service.bootstrap();
+
+        const created = service.upsertDiagram('diagram-session-1', {
+            projectId: bootstrap.defaultProject.id,
+            diagram: {
+                id: 'ignored',
+                name: 'Session Diagram',
+                databaseType: 'postgresql',
+                tables: [{ id: 'tbl-1', name: 'users' }],
+                createdAt: '2026-03-22T12:00:00.000Z',
+                updatedAt: '2026-03-22T12:00:00.000Z',
+            },
+        });
+        expect(created.collaboration.document.version).toBe(1);
+
+        const started = service.createDiagramSession('diagram-session-1', {
+            mode: 'edit',
+            clientId: 'test-client',
+        });
+        expect(started.session.baseVersion).toBe(1);
+        expect(started.collaboration.activeSessionCount).toBe(1);
+
+        const updated = service.upsertDiagram('diagram-session-1', {
+            projectId: bootstrap.defaultProject.id,
+            sessionId: started.session.id,
+            baseVersion: started.session.baseVersion,
+            diagram: {
+                id: 'ignored',
+                name: 'Session Diagram',
+                databaseType: 'postgresql',
+                tables: [
+                    { id: 'tbl-1', name: 'users' },
+                    { id: 'tbl-2', name: 'teams' },
+                ],
+                createdAt: '2026-03-22T12:00:00.000Z',
+                updatedAt: '2026-03-22T12:05:00.000Z',
+            },
+        });
+
+        expect(updated.collaboration.document.version).toBe(2);
+        expect(updated.collaboration.document.lastSavedSessionId).toBe(
+            started.session.id
+        );
+
+        expect(() =>
+            service.upsertDiagram('diagram-session-1', {
+                projectId: bootstrap.defaultProject.id,
+                sessionId: started.session.id,
+                baseVersion: 1,
+                diagram: {
+                    id: 'ignored',
+                    name: 'Session Diagram',
+                    databaseType: 'postgresql',
+                    tables: [{ id: 'tbl-1', name: 'users' }],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:10:00.000Z',
+                },
+            })
+        ).toThrowError(/version conflict/i);
+
+        const closed = service.updateDiagramSession(
+            'diagram-session-1',
+            started.session.id,
+            {
+                close: true,
+                lastSeenDocumentVersion: updated.collaboration.document.version,
+            }
+        );
+        expect(closed.session.status).toBe('closed');
+        expect(closed.session.closedAt).toBeTruthy();
+
+        repository.close();
+    });
+
     it('searches projects by exact term, partial matches, and combined filters', () => {
         const { repository, service } = createService();
         service.bootstrap();
