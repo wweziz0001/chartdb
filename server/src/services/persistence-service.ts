@@ -785,17 +785,25 @@ export class PersistenceService {
         actor?: AppUserRecord | null
     ) {
         const payload = upsertDiagramSchema.parse(input);
+        const existing = this.repository.getDiagram(diagramId);
         const project = this.repository.getProject(payload.projectId);
         if (!project) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
-        this.assertCanEditProject(project, actor);
+
+        if (existing) {
+            this.assertCanEditDiagram(existing, actor);
+            if (existing.projectId !== payload.projectId) {
+                this.assertCanEditProject(project, actor);
+            }
+        } else {
+            this.assertCanEditProject(project, actor);
+        }
 
         const document = diagramDocumentSchema.parse({
             ...payload.diagram,
             id: diagramId,
         });
-        const existing = this.repository.getDiagram(diagramId);
         this.assertExpectedDocumentVersion(existing, {
             sessionId: payload.sessionId,
             baseVersion: payload.baseVersion,
