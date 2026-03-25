@@ -48,7 +48,8 @@ export const buildApp = (options?: {
             requestPath === '/api/auth/login' ||
             requestPath === '/api/auth/logout' ||
             requestPath === '/api/auth/oidc/start' ||
-            requestPath === '/api/auth/oidc/callback';
+            requestPath === '/api/auth/oidc/callback' ||
+            requestPath.startsWith('/api/shared/');
 
         if (
             request.url.startsWith('/api') &&

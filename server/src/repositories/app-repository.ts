@@ -6,11 +6,20 @@ import {
     ownershipScopeSchema,
     projectStatusSchema,
     projectVisibilitySchema,
+    sharingAccessSchema,
+    sharingScopeSchema,
     type DiagramDocument,
     userAuthProviderSchema,
     userRoleSchema,
     userStatusSchema,
 } from '../schemas/persistence.js';
+
+export interface SharingRecord {
+    sharingScope: 'private' | 'authenticated' | 'link';
+    sharingAccess: 'view' | 'edit';
+    shareToken: string | null;
+    shareUpdatedAt: string | null;
+}
 
 export interface AppUserRecord {
     id: string;
@@ -54,7 +63,7 @@ export interface AppUserIdentityRecord {
     updatedAt: string;
 }
 
-export interface ProjectRecord {
+export interface ProjectRecord extends SharingRecord {
     id: string;
     name: string;
     description: string | null;
@@ -75,7 +84,7 @@ export interface CollectionRecord {
     updatedAt: string;
 }
 
-export interface DiagramRecord {
+export interface DiagramRecord extends SharingRecord {
     id: string;
     projectId: string;
     ownerUserId: string | null;
@@ -269,6 +278,40 @@ export class AppRepository {
                 sql: `
                     ALTER TABLE app_users
                     ADD COLUMN role TEXT NOT NULL DEFAULT 'member';
+                `,
+            },
+            {
+                version: 6,
+                sql: `
+                    ALTER TABLE app_projects
+                    ADD COLUMN sharing_scope TEXT NOT NULL DEFAULT 'private';
+
+                    ALTER TABLE app_projects
+                    ADD COLUMN sharing_access TEXT NOT NULL DEFAULT 'view';
+
+                    ALTER TABLE app_projects
+                    ADD COLUMN share_token TEXT;
+
+                    ALTER TABLE app_projects
+                    ADD COLUMN share_updated_at TEXT;
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN sharing_scope TEXT NOT NULL DEFAULT 'private';
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN sharing_access TEXT NOT NULL DEFAULT 'view';
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN share_token TEXT;
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN share_updated_at TEXT;
+
+                    CREATE INDEX IF NOT EXISTS idx_app_projects_share_token
+                    ON app_projects(share_token);
+
+                    CREATE INDEX IF NOT EXISTS idx_app_diagrams_share_token
+                    ON app_diagrams(share_token);
                 `,
             },
         ] as const;
@@ -662,7 +705,8 @@ export class AppRepository {
                 `
                 SELECT
                     id, name, description, collection_id, owner_user_id,
-                    visibility, status, created_at, updated_at
+                    visibility, status, sharing_scope, sharing_access,
+                    share_token, share_updated_at, created_at, updated_at
                 FROM app_projects
                 ORDER BY updated_at DESC, created_at DESC
                 `
@@ -678,7 +722,8 @@ export class AppRepository {
                 `
                 SELECT
                     id, name, description, collection_id, owner_user_id,
-                    visibility, status, created_at, updated_at
+                    visibility, status, sharing_scope, sharing_access,
+                    share_token, share_updated_at, created_at, updated_at
                 FROM app_projects
                 WHERE id = ?
                 `
@@ -694,9 +739,10 @@ export class AppRepository {
                 `
                 INSERT INTO app_projects (
                     id, name, description, collection_id, owner_user_id,
-                    visibility, status, created_at, updated_at
+                    visibility, status, sharing_scope, sharing_access,
+                    share_token, share_updated_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -704,6 +750,10 @@ export class AppRepository {
                     owner_user_id = excluded.owner_user_id,
                     visibility = excluded.visibility,
                     status = excluded.status,
+                    sharing_scope = excluded.sharing_scope,
+                    sharing_access = excluded.sharing_access,
+                    share_token = excluded.share_token,
+                    share_updated_at = excluded.share_updated_at,
                     updated_at = excluded.updated_at
                 `
             )
@@ -715,6 +765,10 @@ export class AppRepository {
                 project.ownerUserId,
                 project.visibility,
                 project.status,
+                project.sharingScope,
+                project.sharingAccess,
+                project.shareToken,
+                project.shareUpdatedAt,
                 project.createdAt,
                 project.updatedAt
             );
@@ -731,7 +785,8 @@ export class AppRepository {
                 SELECT
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
-                    document_json, created_at, updated_at
+                    sharing_scope, sharing_access, share_token,
+                    share_updated_at, document_json, created_at, updated_at
                 FROM app_diagrams
                 ORDER BY updated_at DESC, created_at DESC
                 `
@@ -748,7 +803,8 @@ export class AppRepository {
                 SELECT
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
-                    document_json, created_at, updated_at
+                    sharing_scope, sharing_access, share_token,
+                    share_updated_at, document_json, created_at, updated_at
                 FROM app_diagrams
                 WHERE project_id = ?
                 ORDER BY updated_at DESC, created_at DESC
@@ -766,7 +822,8 @@ export class AppRepository {
                 SELECT
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
-                    document_json, created_at, updated_at
+                    sharing_scope, sharing_access, share_token,
+                    share_updated_at, document_json, created_at, updated_at
                 FROM app_diagrams
                 WHERE id = ?
                 `
@@ -782,9 +839,11 @@ export class AppRepository {
                 `
                 INSERT INTO app_diagrams (
                     id, project_id, owner_user_id, name, description, database_type,
-                    database_edition, visibility, status, document_json, created_at, updated_at
+                    database_edition, visibility, status, sharing_scope,
+                    sharing_access, share_token, share_updated_at,
+                    document_json, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     project_id = excluded.project_id,
                     owner_user_id = excluded.owner_user_id,
@@ -794,6 +853,10 @@ export class AppRepository {
                     database_edition = excluded.database_edition,
                     visibility = excluded.visibility,
                     status = excluded.status,
+                    sharing_scope = excluded.sharing_scope,
+                    sharing_access = excluded.sharing_access,
+                    share_token = excluded.share_token,
+                    share_updated_at = excluded.share_updated_at,
                     document_json = excluded.document_json,
                     updated_at = excluded.updated_at
                 `
@@ -808,6 +871,10 @@ export class AppRepository {
                 diagram.databaseEdition,
                 diagram.visibility,
                 diagram.status,
+                diagram.sharingScope,
+                diagram.sharingAccess,
+                diagram.shareToken,
+                diagram.shareUpdatedAt,
                 JSON.stringify(diagram.document),
                 diagram.createdAt,
                 diagram.updatedAt
@@ -895,6 +962,12 @@ export class AppRepository {
             ownerUserId: row.owner_user_id ? String(row.owner_user_id) : null,
             visibility: projectVisibilitySchema.parse(row.visibility),
             status: projectStatusSchema.parse(row.status),
+            sharingScope: sharingScopeSchema.parse(row.sharing_scope),
+            sharingAccess: sharingAccessSchema.parse(row.sharing_access),
+            shareToken: row.share_token ? String(row.share_token) : null,
+            shareUpdatedAt: row.share_updated_at
+                ? String(row.share_updated_at)
+                : null,
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
         };
@@ -913,6 +986,12 @@ export class AppRepository {
                 : null,
             visibility: diagramVisibilitySchema.parse(row.visibility),
             status: diagramStatusSchema.parse(row.status),
+            sharingScope: sharingScopeSchema.parse(row.sharing_scope),
+            sharingAccess: sharingAccessSchema.parse(row.sharing_access),
+            shareToken: row.share_token ? String(row.share_token) : null,
+            shareUpdatedAt: row.share_updated_at
+                ? String(row.share_updated_at)
+                : null,
             document: diagramDocumentSchema.parse(
                 parseJson<DiagramDocument>(String(row.document_json))
             ),

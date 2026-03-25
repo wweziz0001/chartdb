@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import type { AppRepository } from '../repositories/app-repository.js';
 import {
     type AppUserRecord,
     type CollectionRecord,
     type DiagramRecord,
     type ProjectRecord,
+    type SharingRecord,
 } from '../repositories/app-repository.js';
 import {
     createCollectionSchema,
@@ -12,6 +14,9 @@ import {
     type DiagramDocument,
     listProjectsQuerySchema,
     listProjectDiagramsQuerySchema,
+    sharingAccessSchema,
+    sharingScopeSchema,
+    updateSharingSchema,
     updateCollectionSchema,
     updateDiagramSchema,
     upsertDiagramSchema,
@@ -34,7 +39,10 @@ import { generateId } from '../utils/id.js';
 
 export interface BootstrapResult {
     user: AppUserRecord;
-    defaultProject: ProjectRecord;
+    defaultProject: ProjectRecord & {
+        diagramCount: number;
+        access: ResourceAccess;
+    };
 }
 
 export interface CollectionSummary extends CollectionRecord {
@@ -42,11 +50,23 @@ export interface CollectionSummary extends CollectionRecord {
     diagramCount: number;
 }
 
+export type ResourceAccess = 'none' | 'view' | 'edit' | 'owner';
+
+export interface SharingSettings {
+    scope: 'private' | 'authenticated' | 'link';
+    access: 'view' | 'edit';
+    sharePath: string | null;
+    shareUpdatedAt: string | null;
+}
+
 const DEFAULT_USER_CONFIG_KEY = 'default_user_id';
 const DEFAULT_PROJECT_CONFIG_KEY = 'default_project_id';
 const DEFAULT_PROJECT_CONFIG_PREFIX = 'default_project_id:';
 const CHARTDB_BACKUP_FORMAT = 'chartdb-backup';
 const CHARTDB_BACKUP_FORMAT_VERSION = 1;
+const DEFAULT_SHARING_SCOPE = 'private';
+const DEFAULT_SHARING_ACCESS = 'view';
+const SHARE_TOKEN_BYTES = 24;
 
 const findFirstDuplicate = (values: string[]): string | undefined => {
     const seen = new Set<string>();
@@ -68,7 +88,10 @@ export class PersistenceService {
         private readonly defaults: {
             defaultOwnerName: string;
             defaultProjectName: string;
-        }
+        },
+        private readonly options: {
+            authEnabled?: boolean;
+        } = {}
     ) {}
 
     bootstrap(actor?: AppUserRecord | null): BootstrapResult {
@@ -125,13 +148,20 @@ export class PersistenceService {
                 ownerUserId: user.id,
                 visibility: 'private',
                 status: 'active',
+                sharingScope: DEFAULT_SHARING_SCOPE,
+                sharingAccess: DEFAULT_SHARING_ACCESS,
+                shareToken: null,
+                shareUpdatedAt: null,
                 createdAt: now,
                 updatedAt: now,
             };
             this.repository.putProject(defaultProject);
         }
 
-        return { user, defaultProject };
+        return {
+            user,
+            defaultProject: this.toProjectResponse(defaultProject, user),
+        };
     }
 
     private bootstrapForUser(actor: AppUserRecord): BootstrapResult {
@@ -159,20 +189,30 @@ export class PersistenceService {
                 ownerUserId: user.id,
                 visibility: 'private',
                 status: 'active',
+                sharingScope: DEFAULT_SHARING_SCOPE,
+                sharingAccess: DEFAULT_SHARING_ACCESS,
+                shareToken: null,
+                shareUpdatedAt: null,
                 createdAt: now,
                 updatedAt: now,
             };
             this.repository.putProject(defaultProject);
         }
 
-        return { user, defaultProject };
+        return {
+            user,
+            defaultProject: this.toProjectResponse(defaultProject, user),
+        };
     }
 
-    listProjects(options?: {
-        search?: string;
-        collectionId?: string;
-        unassigned?: boolean;
-    }): Array<ProjectRecord & { diagramCount: number }> {
+    listProjects(
+        options?: {
+            search?: string;
+            collectionId?: string;
+            unassigned?: boolean;
+        },
+        actor?: AppUserRecord | null
+    ): Array<ProjectRecord & { diagramCount: number; access: ResourceAccess }> {
         const resolvedOptions = listProjectsQuerySchema.parse(options ?? {});
         const searchTerm = normalizeSearchTerm(resolvedOptions.search);
         const collectionsById = new Map(
@@ -191,7 +231,26 @@ export class PersistenceService {
 
         return this.repository
             .listProjects()
-            .filter((project) => {
+            .map((project) => {
+                const accessibleDiagrams =
+                    diagramsByProjectId
+                        .get(project.id)
+                        ?.filter((diagram) =>
+                            this.canView(this.getDiagramAccess(diagram, actor))
+                        ) ?? [];
+
+                return {
+                    project,
+                    access: this.getProjectAccess(project, actor),
+                    diagramCount: accessibleDiagrams.length,
+                    diagrams: accessibleDiagrams,
+                };
+            })
+            .filter(({ project, access, diagramCount }) => {
+                if (!this.canView(access) && diagramCount === 0) {
+                    return false;
+                }
+
                 if (resolvedOptions.unassigned) {
                     return project.collectionId === null;
                 }
@@ -204,27 +263,43 @@ export class PersistenceService {
 
                 return true;
             })
-            .filter((project) =>
+            .filter(({ project, diagrams }) =>
                 matchesProjectSearch(project, {
                     searchTerm,
                     collection: project.collectionId
                         ? collectionsById.get(project.collectionId)
                         : undefined,
-                    diagrams: diagramsByProjectId.get(project.id) ?? [],
+                    diagrams,
                 })
             )
-            .map((project) => ({
+            .map(({ project, diagramCount, access }) => ({
                 ...project,
-                diagramCount: diagramsByProjectId.get(project.id)?.length ?? 0,
+                diagramCount,
+                access,
             }));
     }
 
-    listCollections(): CollectionSummary[] {
-        const projects = this.repository.listProjects();
+    listCollections(actor?: AppUserRecord | null): CollectionSummary[] {
+        const projects = this.repository.listProjects().filter((project) => {
+            const projectAccess = this.getProjectAccess(project, actor);
+            if (this.canView(projectAccess)) {
+                return true;
+            }
+
+            return this.repository
+                .listProjectDiagrams(project.id)
+                .some((diagram) =>
+                    this.canView(this.getDiagramAccess(diagram, actor))
+                );
+        });
         const collections = this.repository.listCollections();
         const diagramsByProjectId = this.repository
             .listDiagrams()
             .reduce((accumulator, diagram) => {
+                if (!this.canView(this.getDiagramAccess(diagram, actor))) {
+                    return accumulator;
+                }
+
                 accumulator.set(
                     diagram.projectId,
                     (accumulator.get(diagram.projectId) ?? 0) + 1
@@ -313,7 +388,10 @@ export class PersistenceService {
         this.repository.deleteCollection(collectionId);
     }
 
-    createProject(input: unknown, actor?: AppUserRecord | null): ProjectRecord {
+    createProject(
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): ProjectRecord & { diagramCount: number; access: ResourceAccess } {
         const payload = createProjectSchema.parse(input);
         const bootstrap = this.bootstrap(actor);
         const now = new Date().toISOString();
@@ -326,18 +404,27 @@ export class PersistenceService {
             ownerUserId: bootstrap.user.id,
             visibility: payload.visibility ?? 'private',
             status: payload.status ?? 'active',
+            sharingScope: DEFAULT_SHARING_SCOPE,
+            sharingAccess: DEFAULT_SHARING_ACCESS,
+            shareToken: null,
+            shareUpdatedAt: null,
             createdAt: now,
             updatedAt: now,
         };
         this.repository.putProject(project);
-        return project;
+        return this.toProjectResponse(project);
     }
 
-    updateProject(projectId: string, input: unknown): ProjectRecord {
+    updateProject(
+        projectId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): ProjectRecord & { diagramCount: number; access: ResourceAccess } {
         const project = this.repository.getProject(projectId);
         if (!project) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
+        this.assertCanEditProject(project, actor);
 
         const payload = updateProjectSchema.parse(input);
         const collectionId =
@@ -357,14 +444,15 @@ export class PersistenceService {
             updatedAt: new Date().toISOString(),
         };
         this.repository.putProject(updatedProject);
-        return updatedProject;
+        return this.toProjectResponse(updatedProject, actor);
     }
 
-    deleteProject(projectId: string) {
+    deleteProject(projectId: string, actor?: AppUserRecord | null) {
         const project = this.repository.getProject(projectId);
         if (!project) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
+        this.assertCanEditProject(project, actor);
         this.repository.deleteProject(projectId);
 
         const defaultProjectId = this.repository.getConfigValue(
@@ -379,7 +467,11 @@ export class PersistenceService {
         }
     }
 
-    listProjectDiagrams(projectId: string, query: unknown) {
+    listProjectDiagrams(
+        projectId: string,
+        query: unknown,
+        actor?: AppUserRecord | null
+    ) {
         const project = this.repository.getProject(projectId);
         if (!project) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
@@ -395,16 +487,29 @@ export class PersistenceService {
             collection,
             searchTerm
         );
+        const projectAccess = this.getProjectAccess(project, actor);
         const diagrams = this.repository
             .listProjectDiagrams(projectId)
+            .filter((diagram) =>
+                this.canView(this.getDiagramAccess(diagram, actor))
+            )
             .filter((diagram) =>
                 projectMetadataMatches
                     ? true
                     : matchesDiagramSearch(diagram, searchTerm)
             );
 
+        if (!this.canView(projectAccess) && diagrams.length === 0) {
+            throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
+        }
+
         if (options.view === 'full') {
-            return diagrams.map((diagram) => this.toDiagramResponse(diagram));
+            return diagrams.map((diagram) =>
+                this.toDiagramResponse(
+                    diagram,
+                    this.getDiagramAccess(diagram, actor)
+                )
+            );
         }
 
         return diagrams.map((diagram) => ({
@@ -417,6 +522,9 @@ export class PersistenceService {
             databaseEdition: diagram.databaseEdition,
             visibility: diagram.visibility,
             status: diagram.status,
+            sharingScope: diagram.sharingScope,
+            sharingAccess: diagram.sharingAccess,
+            access: this.getDiagramAccess(diagram, actor),
             tableCount: Array.isArray(diagram.document.tables)
                 ? diagram.document.tables.length
                 : 0,
@@ -425,12 +533,16 @@ export class PersistenceService {
         }));
     }
 
-    getDiagram(diagramId: string) {
+    getDiagram(diagramId: string, actor?: AppUserRecord | null) {
         const diagram = this.repository.getDiagram(diagramId);
         if (!diagram) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
-        return this.toDiagramResponse(diagram);
+        const access = this.getDiagramAccess(diagram, actor);
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+        return this.toDiagramResponse(diagram, access);
     }
 
     upsertDiagram(
@@ -443,6 +555,7 @@ export class PersistenceService {
         if (!project) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
+        this.assertCanEditProject(project, actor);
 
         const document = diagramDocumentSchema.parse({
             ...payload.diagram,
@@ -469,6 +582,10 @@ export class PersistenceService {
             databaseEdition: document.databaseEdition ?? null,
             visibility: payload.visibility ?? existing?.visibility ?? 'private',
             status: payload.status ?? existing?.status ?? 'active',
+            sharingScope: existing?.sharingScope ?? DEFAULT_SHARING_SCOPE,
+            sharingAccess: existing?.sharingAccess ?? DEFAULT_SHARING_ACCESS,
+            shareToken: existing?.shareToken ?? null,
+            shareUpdatedAt: existing?.shareUpdatedAt ?? null,
             document: this.normalizeDocument({
                 ...document,
                 createdAt: existing?.document.createdAt ?? document.createdAt,
@@ -479,14 +596,22 @@ export class PersistenceService {
         };
 
         this.repository.putDiagram(record);
-        return this.toDiagramResponse(record);
+        return this.toDiagramResponse(
+            record,
+            this.getDiagramAccess(record, actor)
+        );
     }
 
-    updateDiagram(diagramId: string, input: unknown) {
+    updateDiagram(
+        diagramId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ) {
         const existing = this.repository.getDiagram(diagramId);
         if (!existing) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
+        this.assertCanEditDiagram(existing, actor);
 
         const payload = updateDiagramSchema.parse(input);
         const nextProject = payload.projectId
@@ -495,6 +620,9 @@ export class PersistenceService {
 
         if (!nextProject) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
+        }
+        if (payload.projectId) {
+            this.assertCanEditProject(nextProject, actor);
         }
 
         const now = new Date().toISOString();
@@ -512,6 +640,10 @@ export class PersistenceService {
             description,
             visibility: payload.visibility ?? existing.visibility,
             status: payload.status ?? existing.status,
+            sharingScope: existing.sharingScope,
+            sharingAccess: existing.sharingAccess,
+            shareToken: existing.shareToken,
+            shareUpdatedAt: existing.shareUpdatedAt,
             document: this.normalizeDocument({
                 ...existing.document,
                 name,
@@ -521,15 +653,174 @@ export class PersistenceService {
         };
 
         this.repository.putDiagram(record);
-        return this.toDiagramResponse(record);
+        return this.toDiagramResponse(
+            record,
+            this.getDiagramAccess(record, actor)
+        );
     }
 
-    deleteDiagram(diagramId: string) {
+    deleteDiagram(diagramId: string, actor?: AppUserRecord | null) {
         const diagram = this.repository.getDiagram(diagramId);
         if (!diagram) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
+        this.assertCanEditDiagram(diagram, actor);
         this.repository.deleteDiagram(diagramId);
+    }
+
+    getProjectSharing(
+        projectId: string,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const project = this.requireProject(projectId);
+        this.assertCanManageSharing(project.ownerUserId, actor);
+        return this.toSharingSettings(project, 'project', project.id);
+    }
+
+    updateProjectSharing(
+        projectId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const project = this.requireProject(projectId);
+        this.assertCanManageSharing(project.ownerUserId, actor);
+        const payload = updateSharingSchema.parse(input);
+        const nextProject: ProjectRecord = {
+            ...project,
+            ...this.resolveSharingUpdate(payload, project),
+            updatedAt: new Date().toISOString(),
+        };
+        this.repository.putProject(nextProject);
+        return this.toSharingSettings(nextProject, 'project', nextProject.id);
+    }
+
+    getDiagramSharing(
+        diagramId: string,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const diagram = this.requireDiagram(diagramId);
+        const project = this.requireProject(diagram.projectId);
+        this.assertCanManageSharing(
+            diagram.ownerUserId ?? project.ownerUserId,
+            actor
+        );
+        return this.toSharingSettings(diagram, 'diagram', diagram.id);
+    }
+
+    updateDiagramSharing(
+        diagramId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const diagram = this.requireDiagram(diagramId);
+        const project = this.requireProject(diagram.projectId);
+        this.assertCanManageSharing(
+            diagram.ownerUserId ?? project.ownerUserId,
+            actor
+        );
+        const payload = updateSharingSchema.parse(input);
+        const nextDiagram: DiagramRecord = {
+            ...diagram,
+            ...this.resolveSharingUpdate(payload, diagram),
+            updatedAt: new Date().toISOString(),
+        };
+        this.repository.putDiagram(nextDiagram);
+        return this.toSharingSettings(nextDiagram, 'diagram', nextDiagram.id);
+    }
+
+    getSharedProject(projectId: string, shareToken: string) {
+        const project = this.requireProject(projectId);
+        const access = this.getProjectAccess(project, null, { shareToken });
+        if (!this.canView(access)) {
+            throw new AppError(
+                'Shared project not found.',
+                404,
+                'SHARED_PROJECT_NOT_FOUND'
+            );
+        }
+
+        const diagrams = this.repository
+            .listProjectDiagrams(projectId)
+            .filter((diagram) =>
+                this.canView(
+                    this.getDiagramAccess(diagram, null, { shareToken })
+                )
+            )
+            .map((diagram) => ({
+                id: diagram.id,
+                projectId: diagram.projectId,
+                ownerUserId: diagram.ownerUserId,
+                name: diagram.name,
+                description: diagram.description,
+                databaseType: diagram.databaseType,
+                databaseEdition: diagram.databaseEdition,
+                visibility: diagram.visibility,
+                status: diagram.status,
+                sharingScope: diagram.sharingScope,
+                sharingAccess: diagram.sharingAccess,
+                access: this.getDiagramAccess(diagram, null, { shareToken }),
+                tableCount: Array.isArray(diagram.document.tables)
+                    ? diagram.document.tables.length
+                    : 0,
+                createdAt: diagram.createdAt,
+                updatedAt: diagram.updatedAt,
+            }));
+
+        return {
+            project: {
+                ...project,
+                access,
+            },
+            items: diagrams,
+        };
+    }
+
+    getSharedProjectDiagram(
+        projectId: string,
+        diagramId: string,
+        shareToken: string
+    ) {
+        const project = this.requireProject(projectId);
+        const projectAccess = this.getProjectAccess(project, null, {
+            shareToken,
+        });
+        if (!this.canView(projectAccess)) {
+            throw new AppError(
+                'Shared project not found.',
+                404,
+                'SHARED_PROJECT_NOT_FOUND'
+            );
+        }
+
+        const diagram = this.requireDiagram(diagramId);
+        if (diagram.projectId !== projectId) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const access = this.getDiagramAccess(diagram, null, {
+            shareToken,
+        });
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        return this.toDiagramResponse(diagram, access);
+    }
+
+    getSharedDiagram(diagramId: string, shareToken: string) {
+        const diagram = this.requireDiagram(diagramId);
+        const access = this.getDiagramAccess(diagram, null, {
+            shareToken,
+        });
+        if (!this.canView(access)) {
+            throw new AppError(
+                'Shared diagram not found.',
+                404,
+                'SHARED_DIAGRAM_NOT_FOUND'
+            );
+        }
+
+        return this.toDiagramResponse(diagram, access);
     }
 
     exportBackup(input: unknown): ChartDbBackupArchive {
@@ -728,6 +1019,10 @@ export class PersistenceService {
                     ownerUserId: bootstrap.user.id,
                     visibility: project.visibility,
                     status: project.status,
+                    sharingScope: DEFAULT_SHARING_SCOPE,
+                    sharingAccess: DEFAULT_SHARING_ACCESS,
+                    shareToken: null,
+                    shareUpdatedAt: null,
                     createdAt: project.createdAt,
                     updatedAt: project.updatedAt,
                 });
@@ -768,6 +1063,10 @@ export class PersistenceService {
                     databaseEdition: diagram.databaseEdition,
                     visibility: diagram.visibility,
                     status: diagram.status,
+                    sharingScope: DEFAULT_SHARING_SCOPE,
+                    sharingAccess: DEFAULT_SHARING_ACCESS,
+                    shareToken: null,
+                    shareUpdatedAt: null,
                     document,
                     createdAt: diagram.createdAt,
                     updatedAt: diagram.updatedAt,
@@ -782,6 +1081,226 @@ export class PersistenceService {
                 firstDiagramId: importedDiagramIds[0] ?? null,
             };
         });
+    }
+
+    private get authEnabled(): boolean {
+        return this.options.authEnabled ?? false;
+    }
+
+    private getProjectAccess(
+        project: ProjectRecord,
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
+    ): ResourceAccess {
+        if (!this.authEnabled) {
+            return 'owner';
+        }
+
+        if (this.isOwner(project.ownerUserId, actor)) {
+            return 'owner';
+        }
+
+        let access: ResourceAccess = 'none';
+
+        if (actor && project.sharingScope === 'authenticated') {
+            access = this.maxAccess(access, project.sharingAccess);
+        }
+
+        if (
+            options?.shareToken &&
+            project.sharingScope === 'link' &&
+            project.shareToken === options.shareToken
+        ) {
+            access = this.maxAccess(access, project.sharingAccess);
+        }
+
+        return access;
+    }
+
+    private getDiagramAccess(
+        diagram: DiagramRecord,
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
+    ): ResourceAccess {
+        if (!this.authEnabled) {
+            return 'owner';
+        }
+
+        const project = this.requireProject(diagram.projectId);
+        if (this.isOwner(diagram.ownerUserId ?? project.ownerUserId, actor)) {
+            return 'owner';
+        }
+
+        let access = this.getProjectAccess(project, actor, options);
+
+        if (actor && diagram.sharingScope === 'authenticated') {
+            access = this.maxAccess(access, diagram.sharingAccess);
+        }
+
+        if (
+            options?.shareToken &&
+            diagram.sharingScope === 'link' &&
+            diagram.shareToken === options.shareToken
+        ) {
+            access = this.maxAccess(access, diagram.sharingAccess);
+        }
+
+        return access;
+    }
+
+    private canView(access: ResourceAccess): boolean {
+        return access !== 'none';
+    }
+
+    private canEdit(access: ResourceAccess): boolean {
+        return access === 'edit' || access === 'owner';
+    }
+
+    private maxAccess(a: ResourceAccess, b: ResourceAccess): ResourceAccess {
+        return this.accessRank(a) >= this.accessRank(b) ? a : b;
+    }
+
+    private accessRank(access: ResourceAccess): number {
+        switch (access) {
+            case 'owner':
+                return 3;
+            case 'edit':
+                return 2;
+            case 'view':
+                return 1;
+            default:
+                return 0;
+        }
+    }
+
+    private isOwner(ownerUserId: string | null, actor?: AppUserRecord | null) {
+        if (!actor) {
+            return false;
+        }
+
+        return actor.role === 'admin' || ownerUserId === actor.id;
+    }
+
+    private assertCanEditProject(
+        project: ProjectRecord,
+        actor?: AppUserRecord | null
+    ) {
+        if (this.canEdit(this.getProjectAccess(project, actor))) {
+            return;
+        }
+
+        throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
+    }
+
+    private assertCanEditDiagram(
+        diagram: DiagramRecord,
+        actor?: AppUserRecord | null
+    ) {
+        if (this.canEdit(this.getDiagramAccess(diagram, actor))) {
+            return;
+        }
+
+        throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+    }
+
+    private assertCanManageSharing(
+        ownerUserId: string | null,
+        actor?: AppUserRecord | null
+    ) {
+        if (this.isOwner(ownerUserId, actor) || !this.authEnabled) {
+            return;
+        }
+
+        throw new AppError('Resource not found.', 404, 'RESOURCE_NOT_FOUND');
+    }
+
+    private requireProject(projectId: string): ProjectRecord {
+        const project = this.repository.getProject(projectId);
+        if (!project) {
+            throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        return project;
+    }
+
+    private requireDiagram(diagramId: string): DiagramRecord {
+        const diagram = this.repository.getDiagram(diagramId);
+        if (!diagram) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        return diagram;
+    }
+
+    private resolveSharingUpdate(
+        payload: {
+            scope: 'private' | 'authenticated' | 'link';
+            access: 'view' | 'edit';
+            rotateLinkToken: boolean;
+        },
+        record: SharingRecord
+    ): Pick<
+        SharingRecord,
+        'sharingScope' | 'sharingAccess' | 'shareToken' | 'shareUpdatedAt'
+    > {
+        const scope = sharingScopeSchema.parse(payload.scope);
+        const requestedAccess = sharingAccessSchema.parse(payload.access);
+
+        if (scope === 'link' && requestedAccess !== 'view') {
+            throw new AppError(
+                'Link sharing is read-only in this release.',
+                400,
+                'LINK_EDIT_UNSUPPORTED'
+            );
+        }
+
+        const shareToken =
+            scope === 'link'
+                ? payload.rotateLinkToken || !record.shareToken
+                    ? this.generateShareToken()
+                    : record.shareToken
+                : null;
+
+        return {
+            sharingScope: scope,
+            sharingAccess: requestedAccess,
+            shareToken,
+            shareUpdatedAt: new Date().toISOString(),
+        };
+    }
+
+    private generateShareToken(): string {
+        return randomBytes(SHARE_TOKEN_BYTES).toString('base64url');
+    }
+
+    private toSharingSettings(
+        record: SharingRecord,
+        resourceType: 'project' | 'diagram',
+        resourceId: string
+    ): SharingSettings {
+        return {
+            scope: record.sharingScope,
+            access: record.sharingAccess,
+            sharePath:
+                record.sharingScope === 'link' && record.shareToken
+                    ? resourceType === 'project'
+                        ? `/shared/projects/${resourceId}/${record.shareToken}`
+                        : `/shared/diagrams/${resourceId}/${record.shareToken}`
+                    : null,
+            shareUpdatedAt: record.shareUpdatedAt,
+        };
+    }
+
+    private toProjectResponse(
+        project: ProjectRecord,
+        actor?: AppUserRecord | null
+    ) {
+        return {
+            ...project,
+            diagramCount: this.repository.listProjectDiagrams(project.id)
+                .length,
+            access: this.getProjectAccess(project, actor),
+        };
     }
 
     private normalizeDocument(document: DiagramDocument): DiagramDocument {
@@ -898,7 +1417,7 @@ export class PersistenceService {
         }
     }
 
-    private toDiagramResponse(diagram: DiagramRecord) {
+    private toDiagramResponse(diagram: DiagramRecord, access: ResourceAccess) {
         return {
             id: diagram.id,
             projectId: diagram.projectId,
@@ -909,6 +1428,9 @@ export class PersistenceService {
             databaseEdition: diagram.databaseEdition,
             visibility: diagram.visibility,
             status: diagram.status,
+            sharingScope: diagram.sharingScope,
+            sharingAccess: diagram.sharingAccess,
+            access,
             createdAt: diagram.createdAt,
             updatedAt: diagram.updatedAt,
             diagram: {

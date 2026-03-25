@@ -54,10 +54,16 @@ export const createAppContext = (
         connectionsService,
         schemaSyncService
     );
-    const persistenceService = new PersistenceService(appRepository, {
-        defaultOwnerName: env.defaultOwnerName,
-        defaultProjectName: env.defaultProjectName,
-    });
+    const persistenceService = new PersistenceService(
+        appRepository,
+        {
+            defaultOwnerName: env.defaultOwnerName,
+            defaultProjectName: env.defaultProjectName,
+        },
+        {
+            authEnabled: env.authMode !== 'disabled',
+        }
+    );
 
     return {
         env,
