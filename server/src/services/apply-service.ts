@@ -113,9 +113,18 @@ export class ApplyService {
         }
 
         const jobId = generateId();
-        const auditId = generateId();
         const now = new Date().toISOString();
-        const logs: string[] = ['Apply requested'];
+        const reusableAudit = this.repository.getLatestAuditForChangePlan(
+            plan.id
+        );
+        const auditId =
+            reusableAudit?.status === 'pending'
+                ? reusableAudit.id
+                : generateId();
+        const logs: string[] =
+            reusableAudit?.status === 'pending'
+                ? [...reusableAudit.logs, 'Apply requested']
+                : ['Apply requested'];
         const executedStatements: string[] = [];
 
         const audit: AuditRecord = {
@@ -123,7 +132,10 @@ export class ApplyService {
             actor: request.actor,
             connectionId: plan.connectionId,
             baselineSnapshotId: plan.baselineSnapshotId,
-            targetSnapshotId: null,
+            targetSnapshotId:
+                reusableAudit?.status === 'pending'
+                    ? reusableAudit.targetSnapshotId
+                    : null,
             preApplySnapshotId: null,
             postApplySnapshotId: null,
             changePlanId: plan.id,
@@ -132,7 +144,10 @@ export class ApplyService {
             status: 'running',
             logs,
             error: null,
-            createdAt: now,
+            createdAt:
+                reusableAudit?.status === 'pending'
+                    ? reusableAudit.createdAt
+                    : now,
             updatedAt: now,
         };
         this.repository.putAudit(audit);

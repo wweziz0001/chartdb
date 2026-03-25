@@ -379,10 +379,45 @@ export class MetadataRepository {
             )
             .get(id) as Record<string, unknown> | undefined;
 
-        if (!row) {
-            return undefined;
-        }
+        return row ? this.mapAudit(row) : undefined;
+    }
 
+    getLatestAuditForChangePlan(changePlanId: string): AuditRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT id, actor, connection_id, baseline_snapshot_id, target_snapshot_id, pre_apply_snapshot_id,
+                       post_apply_snapshot_id, change_plan_id, sql_statements_json, warnings_json,
+                       status, logs_json, error, created_at, updated_at
+                FROM audits
+                WHERE change_plan_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                `
+            )
+            .get(changePlanId) as Record<string, unknown> | undefined;
+
+        return row ? this.mapAudit(row) : undefined;
+    }
+
+    private mapConnectionSummary(
+        row: Record<string, unknown>
+    ): ConnectionSummary {
+        return {
+            id: String(row.id),
+            name: String(row.name),
+            engine: 'postgresql',
+            defaultSchemas: parseJson<string[]>(String(row.default_schemas)),
+            host: String(row.host),
+            port: Number(row.port),
+            database: String(row.database_name),
+            username: String(row.username),
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
+        };
+    }
+
+    private mapAudit(row: Record<string, unknown>): AuditRecord {
         return {
             id: String(row.id),
             actor: String(row.actor),
@@ -405,23 +440,6 @@ export class MetadataRepository {
             status: row.status as AuditRecord['status'],
             logs: parseJson<string[]>(String(row.logs_json)),
             error: row.error ? String(row.error) : null,
-            createdAt: String(row.created_at),
-            updatedAt: String(row.updated_at),
-        };
-    }
-
-    private mapConnectionSummary(
-        row: Record<string, unknown>
-    ): ConnectionSummary {
-        return {
-            id: String(row.id),
-            name: String(row.name),
-            engine: 'postgresql',
-            defaultSchemas: parseJson<string[]>(String(row.default_schemas)),
-            host: String(row.host),
-            port: Number(row.port),
-            database: String(row.database_name),
-            username: String(row.username),
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
         };

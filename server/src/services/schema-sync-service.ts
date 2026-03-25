@@ -15,6 +15,7 @@ import type {
 import { generateId } from '../utils/id.js';
 import { introspectPostgresSchema } from '../postgres/introspection.js';
 import type { ConnectionsService } from './connections-service.js';
+import { AppError } from '../utils/app-error.js';
 
 export class SchemaSyncService {
     constructor(
@@ -27,7 +28,11 @@ export class SchemaSyncService {
     ): Promise<ImportLiveSchemaResponse> {
         const connection = this.repository.getConnection(request.connectionId);
         if (!connection) {
-            throw new Error(`Connection ${request.connectionId} not found`);
+            throw new AppError(
+                `Connection ${request.connectionId} not found.`,
+                404,
+                'connection_not_found'
+            );
         }
 
         const secret = this.connectionsService.getDecryptedSecret(
@@ -70,8 +75,10 @@ export class SchemaSyncService {
             request.baselineSnapshotId
         );
         if (!baseline) {
-            throw new Error(
-                `Baseline snapshot ${request.baselineSnapshotId} not found`
+            throw new AppError(
+                `Baseline snapshot ${request.baselineSnapshotId} not found.`,
+                404,
+                'baseline_snapshot_not_found'
             );
         }
 
@@ -120,7 +127,11 @@ export class SchemaSyncService {
     getChangePlan(planId: string): ChangePlan {
         const plan = this.repository.getChangePlan(planId);
         if (!plan) {
-            throw new Error(`Change plan ${planId} not found`);
+            throw new AppError(
+                `Change plan ${planId} not found.`,
+                404,
+                'change_plan_not_found'
+            );
         }
         return plan;
     }

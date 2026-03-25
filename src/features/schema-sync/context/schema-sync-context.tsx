@@ -48,9 +48,13 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
         try {
             const response = await schemaSyncClient.getConnections();
             setConnections(response.items);
-            setSelectedConnectionIdState(
-                (current) => current ?? response.items[0]?.id
-            );
+            setSelectedConnectionIdState((current) => {
+                return (
+                    response.items.find(
+                        (connection) => connection.id === current
+                    )?.id ?? response.items[0]?.id
+                );
+            });
         } finally {
             setConnectionsLoading(false);
         }
@@ -113,6 +117,9 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
     const deleteConnection = useCallback(
         async (connectionId: string) => {
             await schemaSyncClient.deleteConnection(connectionId);
+            setSelectedConnectionIdState((current) =>
+                current === connectionId ? undefined : current
+            );
             setPreviewPlan(undefined);
             setApplyResult(undefined);
             toast({
@@ -160,6 +167,8 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                 lastImportedAt: new Date().toISOString(),
                 lastPreviewPlanId: null,
                 lastPreviewedAt: null,
+                lastAuditId: null,
+                lastPostApplySnapshotId: null,
             };
 
             if (mode === 'replace') {
@@ -229,7 +238,6 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
         const response = await schemaSyncClient.previewChanges({
             baselineSnapshotId: currentDiagram.schemaSync.baselineSnapshotId,
             targetSchema,
-            actor: 'local-user',
         });
         setPreviewPlan(response.plan);
         setApplyResult(undefined);
@@ -251,17 +259,32 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
 
             const result = await schemaSyncClient.applyChanges({
                 planId: previewPlan.id,
-                actor: 'local-user',
                 destructiveApproval: {
                     confirmed: true,
                     confirmationText,
                 },
             });
             setApplyResult(result);
-            await updateDiagramSyncMetadata({
-                lastAuditId: result.auditId,
-                lastPostApplySnapshotId: result.postApplySnapshotId ?? null,
-            });
+            const nextImportedAt = new Date().toISOString();
+            await updateDiagramSyncMetadata(
+                result.status === 'succeeded' && result.postApplySnapshotId
+                    ? {
+                          baselineSnapshotId: result.postApplySnapshotId,
+                          baselineFingerprint: previewPlan.targetFingerprint,
+                          lastImportedAt: nextImportedAt,
+                          lastPreviewPlanId: null,
+                          lastAuditId: result.auditId,
+                          lastPostApplySnapshotId: result.postApplySnapshotId,
+                      }
+                    : {
+                          lastAuditId: result.auditId,
+                          lastPostApplySnapshotId:
+                              result.postApplySnapshotId ?? null,
+                      }
+            );
+            if (result.status === 'succeeded') {
+                setPreviewPlan(undefined);
+            }
             toast({
                 title:
                     result.status === 'succeeded'
@@ -269,7 +292,7 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                         : 'Schema apply failed',
                 description:
                     result.status === 'succeeded'
-                        ? 'Refresh from database to import the post-apply state.'
+                        ? 'Baseline advanced to the applied schema snapshot.'
                         : (result.error ?? 'The apply job did not succeed.'),
             });
         },

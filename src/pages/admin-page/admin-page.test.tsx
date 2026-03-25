@@ -62,7 +62,7 @@ const overviewFixture: AdminOverviewResponse = {
         projects: 3,
         diagrams: 4,
         activeSessions: 2,
-        sharingRecords: null,
+        sharingRecords: 2,
     },
     platform: {
         environment: 'test',
@@ -137,8 +137,8 @@ const overviewFixture: AdminOverviewResponse = {
         },
     },
     sharing: {
-        supported: false,
-        totalRecords: null,
+        supported: true,
+        totalRecords: 2,
     },
 };
 

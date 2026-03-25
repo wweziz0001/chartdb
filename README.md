@@ -69,7 +69,7 @@ You can import a live schema from a real database, edit it visually, persist pro
   Generate PostgreSQL migration SQL from the baseline-vs-target diff in dependency-aware order.
 
 - **Safe Apply Workflow**
-  Apply approved change plans back to PostgreSQL from the backend with drift detection, preflight checks, destructive confirmations, audit records, and post-apply refresh support.
+  Apply approved change plans back to PostgreSQL from the backend with drift detection, preflight checks, destructive confirmations, audit records, and baseline advancement after successful apply.
 
 - **Instant Schema Import**
   Run a single query to instantly retrieve your database schema as JSON. This makes it incredibly fast to visualize your database schema, whether for documentation, team discussions, or simply understanding your data better.
@@ -103,6 +103,12 @@ The first production-oriented schema sync release supports:
 - Generated migration SQL preview
 - Safe apply with destructive confirmations
 - Audit trail, execution logs, and drift detection
+
+When authentication is enabled, schema-sync is treated as an operational capability:
+
+- only authenticated admins can manage saved database connections
+- only authenticated admins can import, preview, and apply live PostgreSQL changes
+- audit actors are derived from the authenticated server session rather than trusted from the browser payload
 
 Planned next adapters:
 
@@ -139,7 +145,9 @@ See [Optional Authentication](./docs/optional-authentication.md) for self-hosted
 See [Scoped Sharing](./docs/scoped-sharing.md) for private, authenticated, and link-based sharing rules.
 See [Real-Time Collaboration](./docs/realtime-collaboration.md) for shared editing architecture, setup, and current limitations.
 See [Admin Dashboard](./docs/admin-dashboard.md) for the basic self-hosted admin surface.
+See [Schema Sync Architecture](./docs/schema-sync-architecture.md) for live PostgreSQL import, diff, apply, and safety details.
 See [Self-Hosting ChartDB](./docs/self-hosting.md) for Docker, reverse proxy, health check, and deployment guidance.
+See [Post-Merge Integration Audit](./docs/post-merge-integration-audit.md) for the current audited feature matrix and remaining limitations.
 
 ### Full Local Stack With Docker
 
@@ -201,6 +209,7 @@ CHARTDB_SECRET_KEY=replace-with-a-long-random-secret
 
 Production note: when authentication is enabled, `CHARTDB_CORS_ORIGIN` must be an explicit origin, not `*`.
 If you omit `CHARTDB_BOOTSTRAP_SETUP_CODE`, ChartDB generates a short-lived setup code and logs it while the deployment is still uninitialized.
+When authentication is enabled, PostgreSQL connection management plus schema import/diff/apply routes are limited to authenticated administrators.
 
 Minimal OIDC setup:
 
@@ -228,7 +237,7 @@ Key variables:
 - `CHARTDB_API_HOST`: backend bind host
 - `CHARTDB_API_PORT`: backend port
 - `CHARTDB_TRUST_PROXY`: `false`, `true`, or a positive proxy-hop count such as `1`
-- `CHARTDB_SECRET_KEY`: encryption key for stored connection secrets
+- `CHARTDB_SECRET_KEY`: encryption key for stored PostgreSQL connection secrets and auth-related server state
 - `CHARTDB_DATA_DIR`: default directory for backend SQLite files
 - `CHARTDB_APP_DB_PATH`: optional override for the self-hosted app persistence database
 - `CHARTDB_METADATA_DB_PATH`: optional override for the schema-sync metadata database
@@ -253,6 +262,12 @@ Key variables:
 - `CHARTDB_DEFAULT_PROJECT_NAME`: initial self-hosted project name
 - `CHARTDB_DEFAULT_OWNER_NAME`: initial placeholder owner name
 - `CHARTDB_CORS_ORIGIN`: backend CORS policy
+
+Current schema-sync limitations:
+
+- PostgreSQL is the only live apply target today
+- additive enum changes are supported, but broader custom PostgreSQL types still need manual review
+- diagram/project `sharingScope` is the enforced external access model; `visibility` remains inventory metadata rather than the live authorization source
 
 ### Build
 
