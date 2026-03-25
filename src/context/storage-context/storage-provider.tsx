@@ -104,6 +104,9 @@ const toCachedProject = (
     ownerUserId: project.ownerUserId,
     visibility: project.visibility,
     status: project.status,
+    sharingScope: project.sharingScope,
+    sharingAccess: project.sharingAccess,
+    access: project.access,
     createdAt: new Date(project.createdAt),
     updatedAt: new Date(project.updatedAt),
 });
@@ -128,6 +131,9 @@ const toCachedDiagram = (
     databaseEdition: diagram.databaseEdition,
     visibility: diagram.visibility,
     status: diagram.status,
+    sharingScope: diagram.sharingScope,
+    sharingAccess: diagram.sharingAccess,
+    access: diagram.access,
     tableCount:
         'tableCount' in diagram
             ? diagram.tableCount
@@ -425,6 +431,26 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         });
 
         dexieDB.version(15).stores({
+            diagrams:
+                '++id, name, databaseType, databaseEdition, createdAt, updatedAt',
+            db_tables:
+                '++id, diagramId, name, schema, x, y, fields, indexes, color, createdAt, width, comment, isView, isMaterializedView, order',
+            db_relationships:
+                '++id, diagramId, name, sourceSchema, sourceTableId, targetSchema, targetTableId, sourceFieldId, targetFieldId, type, createdAt',
+            db_dependencies:
+                '++id, diagramId, schema, tableId, dependentSchema, dependentTableId, createdAt',
+            areas: '++id, diagramId, name, x, y, width, height, color',
+            db_custom_types:
+                '++id, diagramId, schema, type, kind, values, fields',
+            config: '++id, defaultDiagramId',
+            diagram_filters: 'diagramId, tableIds, schemasIds',
+            notes: '++id, diagramId, content, x, y, width, height, color',
+            saved_collections: 'id, name, updatedAt, createdAt',
+            saved_projects: 'id, collectionId, name, updatedAt, createdAt',
+            saved_diagrams: 'id, projectId, name, updatedAt, createdAt',
+        });
+
+        dexieDB.version(16).stores({
             diagrams:
                 '++id, name, databaseType, databaseEdition, createdAt, updatedAt',
             db_tables:
@@ -885,6 +911,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 ownerUserId: null,
                 visibility: 'private',
                 status: 'active',
+                sharingScope: 'private',
+                sharingAccess: 'view',
+                access: 'owner',
                 diagramCount: localDiagrams.length,
                 createdAt: localDiagrams
                     .map((diagram) => diagram.createdAt)
@@ -917,6 +946,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                         databaseEdition: diagram.databaseEdition ?? null,
                         visibility: 'private',
                         status: 'active',
+                        sharingScope: 'private',
+                        sharingAccess: 'view',
+                        access: 'owner',
                         tableCount: diagram.tables?.length ?? 0,
                         createdAt: diagram.createdAt,
                         updatedAt: diagram.updatedAt,
@@ -1653,6 +1685,42 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         [deleteProjectCache, ensureRemotePersistenceReady]
     );
 
+    const getProjectSharing: StorageContext['getProjectSharing'] = useCallback(
+        async (projectId) => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'ChartDB server persistence is unavailable. Sharing settings cannot be loaded right now.'
+                );
+            }
+
+            const response =
+                await persistenceClient.getProjectSharing(projectId);
+            return response.sharing;
+        },
+        [ensureRemotePersistenceReady]
+    );
+
+    const updateProjectSharing: StorageContext['updateProjectSharing'] =
+        useCallback(
+            async (projectId, params) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response = await persistenceClient.updateProjectSharing(
+                    projectId,
+                    params
+                );
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
     const listProjectDiagrams: StorageContext['listProjectDiagrams'] =
         useCallback(
             async (projectId, options) => {
@@ -1723,6 +1791,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     databaseEdition: localDiagram.databaseEdition ?? null,
                     visibility: 'private',
                     status: 'active',
+                    sharingScope: 'private',
+                    sharingAccess: 'view',
+                    access: 'owner',
                     tableCount: localDiagram.tables?.length ?? 0,
                     createdAt: localDiagram.createdAt,
                     updatedAt: localDiagram.updatedAt,
@@ -1778,6 +1849,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                         databaseEdition: nextDiagram.databaseEdition ?? null,
                         visibility: 'private',
                         status: 'active',
+                        sharingScope: 'private',
+                        sharingAccess: 'view',
+                        access: 'owner',
                         tableCount: nextDiagram.tables?.length ?? 0,
                         createdAt: nextDiagram.createdAt,
                         updatedAt: nextDiagram.updatedAt,
@@ -1802,6 +1876,55 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 readLocalDiagram,
                 replaceLocalDiagramSnapshot,
             ]
+        );
+
+    const getDiagramSharing: StorageContext['getDiagramSharing'] = useCallback(
+        async (diagramId) => {
+            await ensureRemotePersistenceReady();
+            if (!remoteReadyRef.current) {
+                throw new Error(
+                    'ChartDB server persistence is unavailable. Sharing settings cannot be loaded right now.'
+                );
+            }
+
+            const response =
+                await persistenceClient.getDiagramSharing(diagramId);
+            return response.sharing;
+        },
+        [ensureRemotePersistenceReady]
+    );
+
+    const updateDiagramSharing: StorageContext['updateDiagramSharing'] =
+        useCallback(
+            async (diagramId, params) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response = await persistenceClient.updateDiagramSharing(
+                    diagramId,
+                    params
+                );
+                try {
+                    const refreshedDiagram =
+                        await persistenceClient.getDiagram(diagramId);
+                    await cacheDiagram(refreshedDiagram);
+                } catch (error) {
+                    console.warn(
+                        'Failed to refresh diagram after sharing update.',
+                        {
+                            diagramId,
+                            error,
+                        }
+                    );
+                }
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [cacheDiagram, ensureRemotePersistenceReady, syncRemoteCatalog]
         );
 
     const saveDiagram: StorageContext['saveDiagram'] = useCallback(
@@ -1843,6 +1966,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     databaseEdition: nextDiagram.databaseEdition ?? null,
                     visibility: 'private',
                     status: 'active',
+                    sharingScope: 'private',
+                    sharingAccess: 'view',
+                    access: 'owner',
                     tableCount: nextDiagram.tables?.length ?? 0,
                     createdAt: nextDiagram.createdAt,
                     updatedAt: nextDiagram.updatedAt,
@@ -1862,6 +1988,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 databaseEdition: nextDiagram.databaseEdition ?? null,
                 visibility: savedDiagram?.visibility ?? 'private',
                 status: savedDiagram?.status ?? 'active',
+                sharingScope: savedDiagram?.sharingScope ?? 'private',
+                sharingAccess: savedDiagram?.sharingAccess ?? 'view',
+                access: savedDiagram?.access ?? 'owner',
                 tableCount: nextDiagram.tables?.length ?? 0,
                 createdAt: savedDiagram?.createdAt ?? nextDiagram.createdAt,
                 updatedAt: nextDiagram.updatedAt,
@@ -1923,6 +2052,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     databaseEdition: nextDiagram.databaseEdition ?? null,
                     visibility: 'private',
                     status: 'active',
+                    sharingScope: 'private',
+                    sharingAccess: 'view',
+                    access: 'owner',
                     tableCount: nextDiagram.tables?.length ?? 0,
                     createdAt: nextDiagram.createdAt,
                     updatedAt: nextDiagram.updatedAt,
@@ -2129,10 +2261,14 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 listProjects,
                 createProject,
                 updateProject,
+                getProjectSharing,
+                updateProjectSharing,
                 deleteProject,
                 listProjectDiagrams,
                 getSavedDiagram,
                 updateSavedDiagram,
+                getDiagramSharing,
+                updateDiagramSharing,
                 saveDiagram,
                 saveDiagramAs,
                 exportBackup,

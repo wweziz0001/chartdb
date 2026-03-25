@@ -160,7 +160,15 @@ export interface ServerEnv {
 export const parseServerEnv = (
     input: NodeJS.ProcessEnv = process.env
 ): ServerEnv => {
-    const parsedEnv = envSchema.parse(input);
+    const normalizedInput = Object.fromEntries(
+        Object.entries(input).map(([key, value]) => [
+            key,
+            typeof value === 'string' && value.trim().length === 0
+                ? undefined
+                : value,
+        ])
+    );
+    const parsedEnv = envSchema.parse(normalizedInput);
     const dataDir = parsedEnv.CHARTDB_DATA_DIR
         ? path.resolve(parsedEnv.CHARTDB_DATA_DIR)
         : path.resolve(repoRoot, '.chartdb-data');

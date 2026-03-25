@@ -11,6 +11,8 @@ export const projectVisibilitySchema = z.enum([
     'public',
 ]);
 export const projectStatusSchema = z.enum(['active', 'archived', 'deleted']);
+export const sharingScopeSchema = z.enum(['private', 'authenticated', 'link']);
+export const sharingAccessSchema = z.enum(['view', 'edit']);
 
 export const diagramVisibilitySchema = z.enum([
     'private',
@@ -79,6 +81,12 @@ export const updateProjectSchema = z
     .refine((value) => Object.keys(value).length > 0, {
         message: 'At least one project field must be updated.',
     });
+
+export const updateSharingSchema = z.object({
+    scope: sharingScopeSchema,
+    access: sharingAccessSchema,
+    rotateLinkToken: z.coerce.boolean().optional().default(false),
+});
 
 export const listProjectsQuerySchema = z
     .object({

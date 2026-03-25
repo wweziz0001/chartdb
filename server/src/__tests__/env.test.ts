@@ -101,4 +101,32 @@ describe('parseServerEnv', () => {
             )
         ).toThrow(/CHARTDB_OIDC_REDIRECT_URL must use HTTPS in production/);
     });
+
+    it('treats blank optional env values as unset', () => {
+        const env = parseServerEnv(
+            createEnvInput({
+                CHARTDB_AUTH_EMAIL: '',
+                CHARTDB_AUTH_PASSWORD: '',
+                CHARTDB_BOOTSTRAP_SETUP_CODE: '',
+                CHARTDB_BOOTSTRAP_ADMIN_EMAIL: '',
+                CHARTDB_SESSION_COOKIE_SECURE: '',
+                CHARTDB_OIDC_ISSUER: '',
+                CHARTDB_OIDC_CLIENT_ID: '',
+                CHARTDB_OIDC_CLIENT_SECRET: '',
+                CHARTDB_OIDC_REDIRECT_URL: '',
+                CHARTDB_OIDC_LOGOUT_URL: '',
+            })
+        );
+
+        expect(env.authEmail).toBeNull();
+        expect(env.authPassword).toBeNull();
+        expect(env.bootstrapSetupCode).toBeNull();
+        expect(env.bootstrapAdminEmail).toBeNull();
+        expect(env.oidcIssuer).toBeNull();
+        expect(env.oidcClientId).toBeNull();
+        expect(env.oidcClientSecret).toBeNull();
+        expect(env.oidcRedirectUrl).toBeNull();
+        expect(env.oidcLogoutUrl).toBeNull();
+        expect(env.sessionCookieSecure).toBe(false);
+    });
 });

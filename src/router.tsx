@@ -18,6 +18,36 @@ const routes: RouteObject[] = [
         },
     })),
     {
+        path: 'shared/projects/:projectId/:shareToken',
+        async lazy() {
+            const { SharedProjectPage } =
+                await import('./pages/shared-project-page/shared-project-page');
+            return {
+                element: <SharedProjectPage />,
+            };
+        },
+    },
+    {
+        path: 'shared/projects/:projectId/:shareToken/diagrams/:diagramId',
+        async lazy() {
+            const { SharedProjectDiagramPage } =
+                await import('./pages/shared-project-page/shared-project-diagram-page');
+            return {
+                element: <SharedProjectDiagramPage />,
+            };
+        },
+    },
+    {
+        path: 'shared/diagrams/:diagramId/:shareToken',
+        async lazy() {
+            const { SharedDiagramPage } =
+                await import('./pages/shared-project-page/shared-diagram-page');
+            return {
+                element: <SharedDiagramPage />,
+            };
+        },
+    },
+    {
         path: 'examples',
         async lazy() {
             const { ExamplesPage } =
@@ -125,6 +155,22 @@ const routes: RouteObject[] = [
             return {
                 template: templates.find(
                     (template) => template.slug === params.templateSlug
+                ),
+            };
+        },
+    },
+    {
+        path: 'admin',
+        async lazy() {
+            const { AdminRouteGuard } =
+                await import('./features/admin/components/admin-route-guard');
+            const { AdminPage } = await import('./pages/admin-page/admin-page');
+
+            return {
+                element: (
+                    <AdminRouteGuard>
+                        <AdminPage />
+                    </AdminRouteGuard>
                 ),
             };
         },

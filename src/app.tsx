@@ -12,6 +12,9 @@ import { useAuth } from './features/auth/hooks/use-auth';
 const AppContent = () => {
     const { ready, enabled, authenticated, serverReachable, bootstrap } =
         useAuth();
+    const isSharedRoute =
+        typeof window !== 'undefined' &&
+        window.location.pathname.startsWith('/shared/');
 
     if (!ready) {
         return (
@@ -23,7 +26,7 @@ const AppContent = () => {
         );
     }
 
-    if (serverReachable && enabled && !authenticated) {
+    if (serverReachable && enabled && !authenticated && !isSharedRoute) {
         if (bootstrap.required) {
             return <BootstrapPage />;
         }

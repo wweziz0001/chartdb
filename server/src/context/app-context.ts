@@ -2,6 +2,7 @@ import type { ServerEnv } from '../config/env.js';
 import { AppRepository } from '../repositories/app-repository.js';
 import { MetadataRepository } from '../repositories/metadata-repository.js';
 import { ApplyService } from '../services/apply-service.js';
+import { AdminService } from '../services/admin-service.js';
 import { AuthService } from '../services/auth-service.js';
 import { ConnectionsService } from '../services/connections-service.js';
 import type { OidcClientProvider } from '../services/oidc-provider.js';
@@ -13,6 +14,7 @@ export interface AppContext {
     metadataRepository: MetadataRepository;
     appRepository: AppRepository;
     authService: AuthService;
+    adminService: AdminService;
     connectionsService: ConnectionsService;
     schemaSyncService: SchemaSyncService;
     applyService: ApplyService;
@@ -38,6 +40,7 @@ export const createAppContext = (
         env,
         options?.oidcProvider
     );
+    const adminService = new AdminService(appRepository, authService, env);
     const connectionsService = new ConnectionsService(
         metadataRepository,
         env.encryptionKey
@@ -51,16 +54,23 @@ export const createAppContext = (
         connectionsService,
         schemaSyncService
     );
-    const persistenceService = new PersistenceService(appRepository, {
-        defaultOwnerName: env.defaultOwnerName,
-        defaultProjectName: env.defaultProjectName,
-    });
+    const persistenceService = new PersistenceService(
+        appRepository,
+        {
+            defaultOwnerName: env.defaultOwnerName,
+            defaultProjectName: env.defaultProjectName,
+        },
+        {
+            authEnabled: env.authMode !== 'disabled',
+        }
+    );
 
     return {
         env,
         metadataRepository,
         appRepository,
         authService,
+        adminService,
         connectionsService,
         schemaSyncService,
         applyService,

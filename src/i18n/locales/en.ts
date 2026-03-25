@@ -418,6 +418,49 @@ export const en = {
                 duplicate: 'Duplicate',
                 delete: 'Delete',
             },
+            sharing: {
+                title: 'Share {{type}} "{{name}}"',
+                fallback_title: 'Share saved item',
+                description:
+                    'Choose whether this item stays private, is visible to signed-in users, or is reachable with a read-only shared link.',
+                loading: 'Loading sharing settings...',
+                project: 'project',
+                diagram: 'diagram',
+                current_status: 'Sharing',
+                share_project: 'Share Project',
+                share_diagram: 'Share',
+                mode_label: 'Sharing mode',
+                mode_private: 'Private',
+                mode_authenticated: 'Signed-in users',
+                mode_link: 'Anyone with the link',
+                mode_private_help:
+                    'Only the owner and admins can open this item.',
+                mode_authenticated_help:
+                    'Authenticated users can open this item with the permission level below.',
+                mode_link_help:
+                    'Shared links are unguessable and read-only in this release.',
+                access_label: 'Permission',
+                access_view: 'View only',
+                access_edit: 'Editable',
+                access_help:
+                    'View-only access protects against accidental edits. Editable access is intended for trusted signed-in teammates.',
+                authenticated_view: 'Signed-in users can view',
+                authenticated_edit: 'Signed-in users can edit',
+                link_view: 'Anyone with the link can view',
+                link_read_only:
+                    'Link shares are intentionally read-only in v1.',
+                link_label: 'Share link',
+                copy_link: 'Copy Link',
+                rotate_link: 'Rotate Link',
+                save: 'Save Sharing',
+                link_ready:
+                    'This link is active now. Rotating it will invalidate the old link.',
+                link_inactive:
+                    'Enable link sharing to generate a shareable URL.',
+                error_load: 'Unable to load sharing settings right now.',
+                error_save: 'Unable to save sharing settings right now.',
+                error_copy: 'Unable to copy the shared link.',
+            },
         },
 
         save_diagram_dialog: {

@@ -110,6 +110,9 @@ CHARTDB_OIDC_REDIRECT_URL=https://chartdb.example.com/api/auth/oidc/callback
   - `POST /api/auth/bootstrap`
   - `POST /api/auth/login`
   - `POST /api/auth/logout`
+  - `GET /api/shared/projects/:id/:shareToken`
+  - `GET /api/shared/projects/:id/:shareToken/diagrams/:diagramId`
+  - `GET /api/shared/diagrams/:id/:shareToken`
 - Protected routes:
   - persistence routes under `/api/app`, `/api/projects`, `/api/collections`, `/api/diagrams`, `/api/backups`
   - schema sync routes under `/api/connections`, `/api/schema`, and `/api/audit`

@@ -9,12 +9,14 @@ import { Menu } from './menu/menu';
 import { SchemaSyncToolbarButton } from '@/features/schema-sync/components/schema-sync-toolbar-button';
 import { Button } from '@/components/button/button';
 import { useAuth } from '@/features/auth/hooks/use-auth';
+import { Link } from 'react-router-dom';
 
 export interface TopNavbarProps {}
 
 export const TopNavbar: React.FC<TopNavbarProps> = () => {
     const { effectiveTheme } = useTheme();
     const { enabled, user, logout } = useAuth();
+    const isAdmin = enabled && user?.role === 'admin';
 
     const renderStars = useCallback(() => {
         return (
@@ -60,6 +62,11 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                                 user?.email ??
                                 'Authenticated'}
                         </span>
+                        {isAdmin ? (
+                            <Button asChild variant="outline" size="sm">
+                                <Link to="/admin">Admin</Link>
+                            </Button>
+                        ) : null}
                         <Button
                             variant="outline"
                             size="sm"

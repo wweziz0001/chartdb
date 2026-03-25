@@ -10,6 +10,7 @@ import { Button } from '@/components/button/button';
 import {
     Ellipsis,
     PencilLine,
+    Share2,
     SquareArrowOutUpRight,
     Trash2,
 } from 'lucide-react';
@@ -17,14 +18,22 @@ import { useTranslation } from 'react-i18next';
 
 interface DiagramRowActionsMenuProps {
     onOpen: () => void;
+    onShare: () => void;
     onRename: () => void;
     onDelete: () => void;
+    canShare?: boolean;
+    canRename?: boolean;
+    canDelete?: boolean;
 }
 
 export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
     onOpen,
+    onShare,
     onRename,
     onDelete,
+    canShare = true,
+    canRename = true,
+    canDelete = true,
 }) => {
     const { t } = useTranslation();
 
@@ -50,7 +59,17 @@ export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
+                    onClick={onShare}
+                    disabled={!canShare}
+                    className="flex justify-between gap-4"
+                >
+                    {t('open_diagram_dialog.sharing.share_diagram')}
+                    <Share2 className="size-3.5" />
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
                     onClick={onRename}
+                    disabled={!canRename}
                     className="flex justify-between gap-4"
                 >
                     {t('open_diagram_dialog.diagram_actions.rename')}
@@ -60,6 +79,7 @@ export const DiagramRowActionsMenu: React.FC<DiagramRowActionsMenuProps> = ({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     onClick={onDelete}
+                    disabled={!canDelete}
                     className="flex justify-between gap-4 text-red-700"
                 >
                     {t('open_diagram_dialog.diagram_actions.delete')}
