@@ -372,6 +372,24 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
         [selectedUserId, userResults]
     );
 
+    const pendingGeneralAccessExpiresAt = useMemo(
+        () =>
+            generalAccessScope === 'link'
+                ? buildExpirationTimestamp(expirationPreset, customExpiration)
+                : null,
+        [customExpiration, expirationPreset, generalAccessScope]
+    );
+
+    const pendingGeneralAccessSummary = useMemo(
+        () =>
+            formatExpirationSummary(
+                generalAccessScope,
+                pendingGeneralAccessExpiresAt,
+                false
+            ),
+        [generalAccessScope, pendingGeneralAccessExpiresAt]
+    );
+
     const applySharingUpdate = async (
         nextSharingPromise: Promise<PersistedSharingSettings>
     ) => {
@@ -893,95 +911,132 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                     </div>
                                 ) : null}
 
-                                <div className="grid gap-3 md:grid-cols-3">
-                                    <div className="space-y-2">
-                                        <span className="text-xs font-medium text-muted-foreground">
-                                            Access mode
-                                        </span>
-                                        <Select
-                                            value={generalAccessScope}
-                                            onValueChange={(value) =>
-                                                setGeneralAccessScope(
-                                                    value as SharingScope
-                                                )
+                                <div className="space-y-3">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                        Access mode
+                                    </span>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <button
+                                            type="button"
+                                            className={cn(
+                                                'rounded-xl border p-3 text-left transition-colors',
+                                                generalAccessScope === 'private'
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'bg-background hover:border-primary/40'
+                                            )}
+                                            onClick={() =>
+                                                setGeneralAccessScope('private')
                                             }
                                         >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="private">
-                                                    Restricted
-                                                </SelectItem>
-                                                <SelectItem value="link">
-                                                    Anyone with the link
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                            <p className="text-sm font-semibold">
+                                                Restricted
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                Only people you add directly can
+                                                open this item.
+                                            </p>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={cn(
+                                                'rounded-xl border p-3 text-left transition-colors',
+                                                generalAccessScope === 'link'
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'bg-background hover:border-primary/40'
+                                            )}
+                                            onClick={() =>
+                                                setGeneralAccessScope('link')
+                                            }
+                                        >
+                                            <p className="text-sm font-semibold">
+                                                Anyone with the link
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                Use a shareable link with a role
+                                                and optional expiration.
+                                            </p>
+                                        </button>
                                     </div>
+                                </div>
 
+                                <div className="grid gap-3 md:grid-cols-2">
                                     <div className="space-y-2">
                                         <span className="text-xs font-medium text-muted-foreground">
                                             Link role
                                         </span>
-                                        <Select
-                                            value={generalAccessRole}
-                                            onValueChange={(value) =>
-                                                setGeneralAccessRole(
-                                                    value as SharingAccess
-                                                )
-                                            }
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="view">
-                                                    Viewer
-                                                </SelectItem>
-                                                <SelectItem value="edit">
-                                                    Editor
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {(
+                                                [
+                                                    'view',
+                                                    'edit',
+                                                ] as SharingAccess[]
+                                            ).map((access) => (
+                                                <Button
+                                                    key={access}
+                                                    type="button"
+                                                    variant={
+                                                        generalAccessRole ===
+                                                        access
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    className="justify-start"
+                                                    onClick={() =>
+                                                        setGeneralAccessRole(
+                                                            access
+                                                        )
+                                                    }
+                                                    disabled={
+                                                        generalAccessScope !==
+                                                        'link'
+                                                    }
+                                                >
+                                                    {getAccessLabel(access)}
+                                                </Button>
+                                            ))}
+                                        </div>
                                     </div>
 
                                     <div className="space-y-2">
                                         <span className="text-xs font-medium text-muted-foreground">
                                             Expiration
                                         </span>
-                                        <Select
-                                            value={expirationPreset}
-                                            onValueChange={(value) =>
-                                                setExpirationPreset(
-                                                    value as ExpirationPreset
-                                                )
-                                            }
-                                            disabled={
-                                                generalAccessScope !== 'link'
-                                            }
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="never">
-                                                    Never
-                                                </SelectItem>
-                                                <SelectItem value="1h">
-                                                    1 hour
-                                                </SelectItem>
-                                                <SelectItem value="1d">
-                                                    1 day
-                                                </SelectItem>
-                                                <SelectItem value="7d">
-                                                    7 days
-                                                </SelectItem>
-                                                <SelectItem value="custom">
-                                                    Custom
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                                            {(
+                                                [
+                                                    ['never', 'Never'],
+                                                    ['1h', '1 hour'],
+                                                    ['1d', '1 day'],
+                                                    ['7d', '7 days'],
+                                                    ['custom', 'Custom'],
+                                                ] satisfies Array<
+                                                    [ExpirationPreset, string]
+                                                >
+                                            ).map(([preset, label]) => (
+                                                <Button
+                                                    key={preset}
+                                                    type="button"
+                                                    variant={
+                                                        expirationPreset ===
+                                                        preset
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    className="justify-start"
+                                                    onClick={() =>
+                                                        setExpirationPreset(
+                                                            preset
+                                                        )
+                                                    }
+                                                    disabled={
+                                                        generalAccessScope !==
+                                                        'link'
+                                                    }
+                                                >
+                                                    {label}
+                                                </Button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1004,11 +1059,7 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                 ) : null}
 
                                 <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-                                    {formatExpirationSummary(
-                                        sharing.generalAccess.scope,
-                                        sharing.generalAccess.expiresAt,
-                                        sharing.generalAccess.isExpired
-                                    )}
+                                    {pendingGeneralAccessSummary}
                                 </div>
 
                                 <div className="space-y-2">
