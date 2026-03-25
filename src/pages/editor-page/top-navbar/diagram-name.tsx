@@ -8,6 +8,7 @@ import { DiagramIcon } from '@/components/diagram-icon/diagram-icon';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { labelVariants } from '@/components/label/label-variants';
+import { Badge } from '@/components/badge/badge';
 import {
     Tooltip,
     TooltipContent,
@@ -18,7 +19,8 @@ import { useDialog } from '@/hooks/use-dialog';
 export interface DiagramNameProps {}
 
 export const DiagramName: React.FC<DiagramNameProps> = () => {
-    const { diagramName, updateDiagramName, currentDiagram } = useChartDB();
+    const { diagramName, updateDiagramName, currentDiagram, diagramSession } =
+        useChartDB();
 
     const { t } = useTranslation();
     const [editMode, setEditMode] = useState(false);
@@ -26,6 +28,8 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
         React.useState(diagramName);
     const inputRef = React.useRef<HTMLInputElement>(null);
     const { openOpenDiagramDialog } = useDialog();
+    const activeCollaboratorCount =
+        diagramSession?.collaboration.activeSessionCount ?? 0;
 
     useEffect(() => {
         setEditedDiagramName(diagramName);
@@ -142,6 +146,14 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
                                     className="!size-3.5 text-slate-600 dark:text-slate-400"
                                 />
                             </Button>
+                            {activeCollaboratorCount > 1 ? (
+                                <Badge
+                                    variant="secondary"
+                                    className="ml-2 px-2 py-0 text-[10px] uppercase tracking-[0.16em]"
+                                >
+                                    {activeCollaboratorCount} live
+                                </Badge>
+                            ) : null}
                         </>
                     )}
                 </div>
