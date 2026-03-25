@@ -44,7 +44,10 @@ import type { DiagramSchemaSync } from '@/lib/domain/schema-sync';
 import type { DiagramSessionState } from '../storage-context/storage-context';
 import { useToast } from '@/components/toast/use-toast';
 import { ToastAction } from '@/components/toast/toast';
-import type { PersistedDiagramCollaborationEvent } from '@/features/persistence/api/persistence-client';
+import type {
+    PersistedDiagramCollaborationEvent,
+    ResourceAccess,
+} from '@/features/persistence/api/persistence-client';
 
 export interface ChartDBProviderProps {
     diagram?: Diagram;
@@ -96,6 +99,9 @@ export const ChartDBProvider: React.FC<
     );
     const [notes, setNotes] = useState<Note[]>(diagram?.notes ?? []);
     const [diagramSession, setDiagramSession] = useState<DiagramSessionState>();
+    const [diagramAccess, setDiagramAccess] = useState<
+        ResourceAccess | undefined
+    >(readonlyProp ? 'view' : undefined);
     const applyingRemoteRefreshRef = useRef(false);
     const remoteRefreshTimerRef = useRef<number>();
     const staleToastIdRef = useRef<string>();
@@ -131,8 +137,8 @@ export const ChartDBProvider: React.FC<
     );
 
     const readonly = useMemo(
-        () => readonlyProp ?? hasDiff ?? false,
-        [readonlyProp, hasDiff]
+        () => readonlyProp || hasDiff || diagramAccess === 'view',
+        [diagramAccess, hasDiff, readonlyProp]
     );
 
     const schemas = useMemo(
@@ -328,6 +334,10 @@ export const ChartDBProvider: React.FC<
         }, [db, diagramId, setDiagramUpdatedAt]);
 
     const saveDiagram: ChartDBContext['saveDiagram'] = useCallback(async () => {
+        if (readonly) {
+            return;
+        }
+
         const updatedAt = new Date();
         setDiagramUpdatedAt(updatedAt);
         await db.updateDiagram({
@@ -341,7 +351,14 @@ export const ChartDBProvider: React.FC<
         });
         const nextSession = await storageDB.getDiagramSessionState(diagramId);
         setDiagramSession(nextSession);
-    }, [db, diagramId, diagramSession, setDiagramUpdatedAt, storageDB]);
+    }, [
+        db,
+        diagramId,
+        diagramSession,
+        readonly,
+        setDiagramUpdatedAt,
+        storageDB,
+    ]);
 
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
@@ -2034,26 +2051,6 @@ export const ChartDBProvider: React.FC<
             ]
         );
 
-    const refreshDiagramFromRemote = useCallback(async () => {
-        if (!diagramId || applyingRemoteRefreshRef.current) {
-            return;
-        }
-
-        applyingRemoteRefreshRef.current = true;
-
-        try {
-            const nextDiagram = await storageDB.getDiagram(
-                diagramId,
-                FULL_DIAGRAM_LOAD_OPTIONS
-            );
-            if (nextDiagram) {
-                loadDiagramFromData(nextDiagram);
-            }
-        } finally {
-            applyingRemoteRefreshRef.current = false;
-        }
-    }, [diagramId, loadDiagramFromData, storageDB]);
-
     const updateDiagramData: ChartDBContext['updateDiagramData'] = useCallback(
         async (diagram, options) => {
             const st = options?.forceUpdateStorage ? storageDB : db;
@@ -2064,6 +2061,36 @@ export const ChartDBProvider: React.FC<
         [db, storageDB, loadDiagramFromData]
     );
 
+    const applyAuthoritativeDiagramState = useCallback(
+        async (targetDiagramId: string) => {
+            const [nextDiagram, savedDiagram] = await Promise.all([
+                storageDB.getDiagram(
+                    targetDiagramId,
+                    FULL_DIAGRAM_LOAD_OPTIONS
+                ),
+                storageDB.getSavedDiagram(targetDiagramId),
+            ]);
+
+            setDiagramAccess(savedDiagram?.access);
+
+            if (nextDiagram) {
+                loadDiagramFromData(nextDiagram);
+            }
+
+            return {
+                diagram: nextDiagram,
+                savedDiagram,
+            };
+        },
+        [loadDiagramFromData, storageDB]
+    );
+
+    const getSessionModeForAccess = useCallback(
+        (access?: ResourceAccess) =>
+            readonlyProp || hasDiff || access === 'view' ? 'view' : 'edit',
+        [hasDiff, readonlyProp]
+    );
+
     const loadDiagram: ChartDBContext['loadDiagram'] = useCallback(
         async (diagramId: string) => {
             if (diagramSession?.session.diagramId) {
@@ -2072,24 +2099,45 @@ export const ChartDBProvider: React.FC<
                 );
             }
 
-            const diagram = await storageDB.getDiagram(diagramId, {
-                ...FULL_DIAGRAM_LOAD_OPTIONS,
-            });
+            const { diagram, savedDiagram } =
+                await applyAuthoritativeDiagramState(diagramId);
+            const sessionMode = getSessionModeForAccess(savedDiagram?.access);
 
             if (diagram) {
-                loadDiagramFromData(diagram);
                 try {
                     const nextSession = await storageDB.activateDiagramSession({
                         diagramId,
-                        mode: readonly ? 'view' : 'edit',
+                        mode: sessionMode,
                     });
                     setDiagramSession(nextSession);
                 } catch (error) {
+                    if (sessionMode === 'edit') {
+                        try {
+                            const fallbackSession =
+                                await storageDB.activateDiagramSession({
+                                    diagramId,
+                                    mode: 'view',
+                                });
+                            setDiagramAccess('view');
+                            setDiagramSession(fallbackSession);
+                            return diagram;
+                        } catch (fallbackError) {
+                            console.warn(
+                                'Failed to activate diagram view collaboration session.',
+                                {
+                                    diagramId,
+                                    error: fallbackError,
+                                }
+                            );
+                        }
+                    }
+
                     console.warn(
                         'Failed to activate diagram collaboration session.',
                         {
                             diagramId,
                             error,
+                            modeTried: sessionMode,
                         }
                     );
                     setDiagramSession(undefined);
@@ -2098,8 +2146,27 @@ export const ChartDBProvider: React.FC<
 
             return diagram;
         },
-        [diagramSession, loadDiagramFromData, readonly, storageDB]
+        [
+            applyAuthoritativeDiagramState,
+            diagramSession,
+            getSessionModeForAccess,
+            storageDB,
+        ]
     );
+
+    const refreshDiagramFromRemote = useCallback(async () => {
+        if (!diagramId || applyingRemoteRefreshRef.current) {
+            return;
+        }
+
+        applyingRemoteRefreshRef.current = true;
+
+        try {
+            await applyAuthoritativeDiagramState(diagramId);
+        } finally {
+            applyingRemoteRefreshRef.current = false;
+        }
+    }, [applyAuthoritativeDiagramState, diagramId]);
 
     const diagramSessionId = diagramSession?.session.id;
     const diagramSessionStatus = diagramSession?.session.status;
