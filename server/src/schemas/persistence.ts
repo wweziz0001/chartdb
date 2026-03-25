@@ -163,7 +163,17 @@ export const updateProjectSchema = z
 export const updateSharingSchema = z.object({
     scope: sharingScopeSchema,
     access: sharingAccessSchema,
+    expiresAt: z.string().trim().datetime().nullable().optional(),
     rotateLinkToken: z.coerce.boolean().optional().default(false),
+});
+
+export const sharingUserMutationSchema = z.object({
+    userId: z.string().trim().min(1),
+    access: sharingAccessSchema,
+});
+
+export const sharingUserAccessUpdateSchema = z.object({
+    access: sharingAccessSchema,
 });
 
 export const listProjectsQuerySchema = z

@@ -27,6 +27,7 @@ import {
     type PersistedDiagramEditSession,
     type PersistedDiagramSummary,
     type PersistedProjectSummary,
+    type PersistedUserSummary,
     persistenceClient,
     serializeDiagram,
     type PersistedDiagramRecord,
@@ -1979,6 +1980,23 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         [ensureRemotePersistenceReady]
     );
 
+    const searchShareableUsers: StorageContext['searchShareableUsers'] =
+        useCallback(
+            async (query) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. People search cannot be loaded right now.'
+                    );
+                }
+
+                const response =
+                    await persistenceClient.searchShareableUsers(query);
+                return response.items as PersistedUserSummary[];
+            },
+            [ensureRemotePersistenceReady]
+        );
+
     const updateProjectSharing: StorageContext['updateProjectSharing'] =
         useCallback(
             async (projectId, params) => {
@@ -1993,6 +2011,69 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     projectId,
                     params
                 );
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
+    const addProjectSharingUser: StorageContext['addProjectSharingUser'] =
+        useCallback(
+            async (projectId, params) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response = await persistenceClient.addProjectSharingUser(
+                    projectId,
+                    params
+                );
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
+    const updateProjectSharingUser: StorageContext['updateProjectSharingUser'] =
+        useCallback(
+            async (projectId, userId, params) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response =
+                    await persistenceClient.updateProjectSharingUser(
+                        projectId,
+                        userId,
+                        params
+                    );
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
+    const removeProjectSharingUser: StorageContext['removeProjectSharingUser'] =
+        useCallback(
+            async (projectId, userId) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response =
+                    await persistenceClient.removeProjectSharingUser(
+                        projectId,
+                        userId
+                    );
                 await syncRemoteCatalog();
                 return response.sharing;
             },
@@ -2186,6 +2267,108 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     diagramId,
                     params
                 );
+                try {
+                    const refreshedDiagram =
+                        await persistenceClient.getDiagram(diagramId);
+                    await cacheDiagram(refreshedDiagram);
+                } catch (error) {
+                    console.warn(
+                        'Failed to refresh diagram after sharing update.',
+                        {
+                            diagramId,
+                            error,
+                        }
+                    );
+                }
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [cacheDiagram, ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
+    const addDiagramSharingUser: StorageContext['addDiagramSharingUser'] =
+        useCallback(
+            async (diagramId, params) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response = await persistenceClient.addDiagramSharingUser(
+                    diagramId,
+                    params
+                );
+                try {
+                    const refreshedDiagram =
+                        await persistenceClient.getDiagram(diagramId);
+                    await cacheDiagram(refreshedDiagram);
+                } catch (error) {
+                    console.warn(
+                        'Failed to refresh diagram after sharing update.',
+                        {
+                            diagramId,
+                            error,
+                        }
+                    );
+                }
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [cacheDiagram, ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
+    const updateDiagramSharingUser: StorageContext['updateDiagramSharingUser'] =
+        useCallback(
+            async (diagramId, userId, params) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response =
+                    await persistenceClient.updateDiagramSharingUser(
+                        diagramId,
+                        userId,
+                        params
+                    );
+                try {
+                    const refreshedDiagram =
+                        await persistenceClient.getDiagram(diagramId);
+                    await cacheDiagram(refreshedDiagram);
+                } catch (error) {
+                    console.warn(
+                        'Failed to refresh diagram after sharing update.',
+                        {
+                            diagramId,
+                            error,
+                        }
+                    );
+                }
+                await syncRemoteCatalog();
+                return response.sharing;
+            },
+            [cacheDiagram, ensureRemotePersistenceReady, syncRemoteCatalog]
+        );
+
+    const removeDiagramSharingUser: StorageContext['removeDiagramSharingUser'] =
+        useCallback(
+            async (diagramId, userId) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    throw new Error(
+                        'ChartDB server persistence is unavailable. Sharing settings cannot be updated right now.'
+                    );
+                }
+
+                const response =
+                    await persistenceClient.removeDiagramSharingUser(
+                        diagramId,
+                        userId
+                    );
                 try {
                     const refreshedDiagram =
                         await persistenceClient.getDiagram(diagramId);
@@ -2579,12 +2762,19 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 updateProject,
                 getProjectSharing,
                 updateProjectSharing,
+                searchShareableUsers,
+                addProjectSharingUser,
+                updateProjectSharingUser,
+                removeProjectSharingUser,
                 deleteProject,
                 listProjectDiagrams,
                 getSavedDiagram,
                 updateSavedDiagram,
                 getDiagramSharing,
                 updateDiagramSharing,
+                addDiagramSharingUser,
+                updateDiagramSharingUser,
+                removeDiagramSharingUser,
                 saveDiagram,
                 activateDiagramSession,
                 getDiagramSessionState,

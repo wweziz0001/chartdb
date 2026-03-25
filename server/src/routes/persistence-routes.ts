@@ -99,11 +99,55 @@ export const registerPersistenceRoutes = (
         return { ok: true };
     });
 
+    app.get('/api/sharing/users', async (request) => {
+        const query = request.query as { query?: string };
+        return {
+            items: context.persistenceService.searchShareableUsers(
+                query.query ?? '',
+                request.auth.user
+            ),
+        };
+    });
+
     app.get('/api/projects/:id/sharing', async (request) => {
         const params = request.params as { id: string };
         return {
             sharing: context.persistenceService.getProjectSharing(
                 params.id,
+                request.auth.user
+            ),
+        };
+    });
+
+    app.post('/api/projects/:id/sharing/people', async (request) => {
+        const params = request.params as { id: string };
+        return {
+            sharing: context.persistenceService.addProjectSharingUser(
+                params.id,
+                request.body,
+                request.auth.user
+            ),
+        };
+    });
+
+    app.patch('/api/projects/:id/sharing/people/:userId', async (request) => {
+        const params = request.params as { id: string; userId: string };
+        return {
+            sharing: context.persistenceService.updateProjectSharingUser(
+                params.id,
+                params.userId,
+                request.body,
+                request.auth.user
+            ),
+        };
+    });
+
+    app.delete('/api/projects/:id/sharing/people/:userId', async (request) => {
+        const params = request.params as { id: string; userId: string };
+        return {
+            sharing: context.persistenceService.removeProjectSharingUser(
+                params.id,
+                params.userId,
                 request.auth.user
             ),
         };
@@ -277,6 +321,40 @@ export const registerPersistenceRoutes = (
             sharing: context.persistenceService.updateDiagramSharing(
                 params.id,
                 request.body,
+                request.auth.user
+            ),
+        };
+    });
+
+    app.post('/api/diagrams/:id/sharing/people', async (request) => {
+        const params = request.params as { id: string };
+        return {
+            sharing: context.persistenceService.addDiagramSharingUser(
+                params.id,
+                request.body,
+                request.auth.user
+            ),
+        };
+    });
+
+    app.patch('/api/diagrams/:id/sharing/people/:userId', async (request) => {
+        const params = request.params as { id: string; userId: string };
+        return {
+            sharing: context.persistenceService.updateDiagramSharingUser(
+                params.id,
+                params.userId,
+                request.body,
+                request.auth.user
+            ),
+        };
+    });
+
+    app.delete('/api/diagrams/:id/sharing/people/:userId', async (request) => {
+        const params = request.params as { id: string; userId: string };
+        return {
+            sharing: context.persistenceService.removeDiagramSharingUser(
+                params.id,
+                params.userId,
                 request.auth.user
             ),
         };

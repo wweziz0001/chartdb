@@ -18,6 +18,8 @@ import {
     listProjectDiagramsQuerySchema,
     sharingAccessSchema,
     sharingScopeSchema,
+    sharingUserAccessUpdateSchema,
+    sharingUserMutationSchema,
     updateDiagramSessionSchema,
     updateSharingSchema,
     updateCollectionSchema,
@@ -60,10 +62,25 @@ export interface CollectionSummary extends CollectionRecord {
 export type ResourceAccess = 'none' | 'view' | 'edit' | 'owner';
 
 export interface SharingSettings {
+    owner: AppUserRecord | null;
+    people: SharingParticipant[];
+    generalAccess: GeneralAccessSettings;
+}
+
+export interface SharingParticipant {
+    user: AppUserRecord;
+    access: 'view' | 'edit';
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface GeneralAccessSettings {
     scope: 'private' | 'authenticated' | 'link';
     access: 'view' | 'edit';
     sharePath: string | null;
     shareUpdatedAt: string | null;
+    expiresAt: string | null;
+    isExpired: boolean;
 }
 
 export interface DiagramDocumentState {
@@ -205,6 +222,7 @@ export class PersistenceService {
                 sharingAccess: DEFAULT_SHARING_ACCESS,
                 shareToken: null,
                 shareUpdatedAt: null,
+                shareExpiresAt: null,
                 createdAt: now,
                 updatedAt: now,
             };
@@ -246,6 +264,7 @@ export class PersistenceService {
                 sharingAccess: DEFAULT_SHARING_ACCESS,
                 shareToken: null,
                 shareUpdatedAt: null,
+                shareExpiresAt: null,
                 createdAt: now,
                 updatedAt: now,
             };
@@ -461,6 +480,7 @@ export class PersistenceService {
             sharingAccess: DEFAULT_SHARING_ACCESS,
             shareToken: null,
             shareUpdatedAt: null,
+            shareExpiresAt: null,
             createdAt: now,
             updatedAt: now,
         };
@@ -765,17 +785,25 @@ export class PersistenceService {
         actor?: AppUserRecord | null
     ) {
         const payload = upsertDiagramSchema.parse(input);
+        const existing = this.repository.getDiagram(diagramId);
         const project = this.repository.getProject(payload.projectId);
         if (!project) {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
-        this.assertCanEditProject(project, actor);
+
+        if (existing) {
+            this.assertCanEditDiagram(existing, actor);
+            if (existing.projectId !== payload.projectId) {
+                this.assertCanEditProject(project, actor);
+            }
+        } else {
+            this.assertCanEditProject(project, actor);
+        }
 
         const document = diagramDocumentSchema.parse({
             ...payload.diagram,
             id: diagramId,
         });
-        const existing = this.repository.getDiagram(diagramId);
         this.assertExpectedDocumentVersion(existing, {
             sessionId: payload.sessionId,
             baseVersion: payload.baseVersion,
@@ -813,6 +841,7 @@ export class PersistenceService {
             sharingAccess: existing?.sharingAccess ?? DEFAULT_SHARING_ACCESS,
             shareToken: existing?.shareToken ?? null,
             shareUpdatedAt: existing?.shareUpdatedAt ?? null,
+            shareExpiresAt: existing?.shareExpiresAt ?? null,
             document: normalizedDocument,
             documentVersion: existing
                 ? documentChanged
@@ -894,6 +923,7 @@ export class PersistenceService {
             sharingAccess: existing.sharingAccess,
             shareToken: existing.shareToken,
             shareUpdatedAt: existing.shareUpdatedAt,
+            shareExpiresAt: existing.shareExpiresAt,
             document,
             documentVersion: documentChanged
                 ? (existing.documentVersion ?? 1) + 1
@@ -929,13 +959,27 @@ export class PersistenceService {
         this.repository.deleteDiagram(diagramId);
     }
 
+    searchShareableUsers(query: string, actor?: AppUserRecord | null) {
+        if (!this.authEnabled) {
+            return [];
+        }
+
+        if (!actor) {
+            throw new AppError('Authentication required.', 401, 'UNAUTHORIZED');
+        }
+
+        return this.repository
+            .searchUsers(query)
+            .filter((user) => user.id !== actor.id);
+    }
+
     getProjectSharing(
         projectId: string,
         actor?: AppUserRecord | null
     ): SharingSettings {
         const project = this.requireProject(projectId);
         this.assertCanManageSharing(project.ownerUserId, actor);
-        return this.toSharingSettings(project, 'project', project.id);
+        return this.buildProjectSharingSettings(project);
     }
 
     updateProjectSharing(
@@ -952,7 +996,43 @@ export class PersistenceService {
             updatedAt: new Date().toISOString(),
         };
         this.repository.putProject(nextProject);
-        return this.toSharingSettings(nextProject, 'project', nextProject.id);
+        return this.buildProjectSharingSettings(nextProject);
+    }
+
+    addProjectSharingUser(
+        projectId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const project = this.requireProject(projectId);
+        this.assertCanManageSharing(project.ownerUserId, actor);
+        const payload = sharingUserMutationSchema.parse(input);
+        this.upsertProjectSharingUser(project, payload.userId, payload.access);
+        return this.buildProjectSharingSettings(project);
+    }
+
+    updateProjectSharingUser(
+        projectId: string,
+        userId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const project = this.requireProject(projectId);
+        this.assertCanManageSharing(project.ownerUserId, actor);
+        const payload = sharingUserAccessUpdateSchema.parse(input);
+        this.upsertProjectSharingUser(project, userId, payload.access);
+        return this.buildProjectSharingSettings(project);
+    }
+
+    removeProjectSharingUser(
+        projectId: string,
+        userId: string,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const project = this.requireProject(projectId);
+        this.assertCanManageSharing(project.ownerUserId, actor);
+        this.repository.deleteProjectUserAccess(project.id, userId);
+        return this.buildProjectSharingSettings(project);
     }
 
     getDiagramSharing(
@@ -965,7 +1045,7 @@ export class PersistenceService {
             diagram.ownerUserId ?? project.ownerUserId,
             actor
         );
-        return this.toSharingSettings(diagram, 'diagram', diagram.id);
+        return this.buildDiagramSharingSettings(diagram);
     }
 
     updateDiagramSharing(
@@ -986,7 +1066,65 @@ export class PersistenceService {
             updatedAt: new Date().toISOString(),
         };
         this.repository.putDiagram(nextDiagram);
-        return this.toSharingSettings(nextDiagram, 'diagram', nextDiagram.id);
+        return this.buildDiagramSharingSettings(nextDiagram);
+    }
+
+    addDiagramSharingUser(
+        diagramId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const diagram = this.requireDiagram(diagramId);
+        const project = this.requireProject(diagram.projectId);
+        this.assertCanManageSharing(
+            diagram.ownerUserId ?? project.ownerUserId,
+            actor
+        );
+        const payload = sharingUserMutationSchema.parse(input);
+        this.upsertDiagramSharingUser(
+            diagram,
+            diagram.ownerUserId ?? project.ownerUserId,
+            payload.userId,
+            payload.access
+        );
+        return this.buildDiagramSharingSettings(diagram);
+    }
+
+    updateDiagramSharingUser(
+        diagramId: string,
+        userId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const diagram = this.requireDiagram(diagramId);
+        const project = this.requireProject(diagram.projectId);
+        this.assertCanManageSharing(
+            diagram.ownerUserId ?? project.ownerUserId,
+            actor
+        );
+        const payload = sharingUserAccessUpdateSchema.parse(input);
+        this.upsertDiagramSharingUser(
+            diagram,
+            diagram.ownerUserId ?? project.ownerUserId,
+            userId,
+            payload.access
+        );
+        return this.buildDiagramSharingSettings(diagram);
+    }
+
+    removeDiagramSharingUser(
+        diagramId: string,
+        userId: string,
+        actor?: AppUserRecord | null
+    ): SharingSettings {
+        const diagram = this.requireDiagram(diagramId);
+        const project = this.requireProject(diagram.projectId);
+        this.assertCanManageSharing(
+            diagram.ownerUserId ?? project.ownerUserId,
+            actor
+        );
+        this.repository.deleteDiagramUserAccess(diagram.id, userId);
+        return this.buildDiagramSharingSettings(diagram);
     }
 
     getSharedProject(projectId: string, shareToken: string) {
@@ -1285,6 +1423,7 @@ export class PersistenceService {
                     sharingAccess: DEFAULT_SHARING_ACCESS,
                     shareToken: null,
                     shareUpdatedAt: null,
+                    shareExpiresAt: null,
                     createdAt: project.createdAt,
                     updatedAt: project.updatedAt,
                 });
@@ -1329,6 +1468,7 @@ export class PersistenceService {
                     sharingAccess: DEFAULT_SHARING_ACCESS,
                     shareToken: null,
                     shareUpdatedAt: null,
+                    shareExpiresAt: null,
                     document,
                     documentVersion: 1,
                     documentUpdatedAt: diagram.updatedAt,
@@ -1366,18 +1506,29 @@ export class PersistenceService {
             return 'owner';
         }
 
+        const activeProject = this.getActiveProjectSharingRecord(project);
         let access: ResourceAccess = 'none';
 
-        if (actor && project.sharingScope === 'authenticated') {
-            access = this.maxAccess(access, project.sharingAccess);
+        if (actor) {
+            const directAccess = this.repository.getProjectUserAccess(
+                activeProject.id,
+                actor.id
+            );
+            if (directAccess) {
+                access = this.maxAccess(access, directAccess.access);
+            }
+        }
+
+        if (actor && activeProject.sharingScope === 'authenticated') {
+            access = this.maxAccess(access, activeProject.sharingAccess);
         }
 
         if (
             options?.shareToken &&
-            project.sharingScope === 'link' &&
-            project.shareToken === options.shareToken
+            activeProject.sharingScope === 'link' &&
+            activeProject.shareToken === options.shareToken
         ) {
-            access = this.maxAccess(access, project.sharingAccess);
+            access = this.maxAccess(access, activeProject.sharingAccess);
         }
 
         return access;
@@ -1397,18 +1548,29 @@ export class PersistenceService {
             return 'owner';
         }
 
+        const activeDiagram = this.getActiveDiagramSharingRecord(diagram);
         let access = this.getProjectAccess(project, actor, options);
 
-        if (actor && diagram.sharingScope === 'authenticated') {
-            access = this.maxAccess(access, diagram.sharingAccess);
+        if (actor) {
+            const directAccess = this.repository.getDiagramUserAccess(
+                activeDiagram.id,
+                actor.id
+            );
+            if (directAccess) {
+                access = this.maxAccess(access, directAccess.access);
+            }
+        }
+
+        if (actor && activeDiagram.sharingScope === 'authenticated') {
+            access = this.maxAccess(access, activeDiagram.sharingAccess);
         }
 
         if (
             options?.shareToken &&
-            diagram.sharingScope === 'link' &&
-            diagram.shareToken === options.shareToken
+            activeDiagram.sharingScope === 'link' &&
+            activeDiagram.shareToken === options.shareToken
         ) {
-            access = this.maxAccess(access, diagram.sharingAccess);
+            access = this.maxAccess(access, activeDiagram.sharingAccess);
         }
 
         return access;
@@ -1498,25 +1660,195 @@ export class PersistenceService {
         return diagram;
     }
 
+    private requireUser(userId: string): AppUserRecord {
+        const user = this.repository.getUser(userId);
+        if (!user) {
+            throw new AppError('User not found.', 404, 'USER_NOT_FOUND');
+        }
+
+        return user;
+    }
+
+    private isShareExpired(record: SharingRecord, referenceTime = new Date()) {
+        if (record.sharingScope !== 'link' || !record.shareExpiresAt) {
+            return false;
+        }
+
+        return (
+            new Date(record.shareExpiresAt).getTime() <= referenceTime.getTime()
+        );
+    }
+
+    private getActiveProjectSharingRecord(project: ProjectRecord) {
+        if (!this.isShareExpired(project)) {
+            return project;
+        }
+
+        const nextProject: ProjectRecord = {
+            ...project,
+            sharingScope: 'private',
+            sharingAccess: DEFAULT_SHARING_ACCESS,
+            shareToken: null,
+            shareUpdatedAt: new Date().toISOString(),
+            shareExpiresAt: null,
+        };
+        this.repository.putProject(nextProject);
+        return nextProject;
+    }
+
+    private getActiveDiagramSharingRecord(diagram: DiagramRecord) {
+        if (!this.isShareExpired(diagram)) {
+            return diagram;
+        }
+
+        const nextDiagram: DiagramRecord = {
+            ...diagram,
+            sharingScope: 'private',
+            sharingAccess: DEFAULT_SHARING_ACCESS,
+            shareToken: null,
+            shareUpdatedAt: new Date().toISOString(),
+            shareExpiresAt: null,
+        };
+        this.repository.putDiagram(nextDiagram);
+        return nextDiagram;
+    }
+
+    private upsertProjectSharingUser(
+        project: ProjectRecord,
+        userId: string,
+        access: 'view' | 'edit'
+    ) {
+        const user = this.requireUser(userId);
+
+        if (project.ownerUserId && user.id === project.ownerUserId) {
+            throw new AppError(
+                'The owner already has full access.',
+                400,
+                'OWNER_ACCESS_IMMUTABLE'
+            );
+        }
+
+        const existing = this.repository.getProjectUserAccess(
+            project.id,
+            user.id
+        );
+        const now = new Date().toISOString();
+        this.repository.putProjectUserAccess({
+            resourceId: project.id,
+            userId: user.id,
+            access,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+        });
+    }
+
+    private upsertDiagramSharingUser(
+        diagram: DiagramRecord,
+        ownerUserId: string | null,
+        userId: string,
+        access: 'view' | 'edit'
+    ) {
+        const user = this.requireUser(userId);
+
+        if (ownerUserId && user.id === ownerUserId) {
+            throw new AppError(
+                'The owner already has full access.',
+                400,
+                'OWNER_ACCESS_IMMUTABLE'
+            );
+        }
+
+        const existing = this.repository.getDiagramUserAccess(
+            diagram.id,
+            user.id
+        );
+        const now = new Date().toISOString();
+        this.repository.putDiagramUserAccess({
+            resourceId: diagram.id,
+            userId: user.id,
+            access,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+        });
+    }
+
+    private buildProjectSharingParticipants(
+        projectId: string
+    ): SharingParticipant[] {
+        return this.repository
+            .listProjectUserAccess(projectId)
+            .map((entry) => {
+                const user = this.repository.getUser(entry.userId);
+                if (!user) {
+                    return null;
+                }
+
+                return {
+                    user,
+                    access: entry.access,
+                    createdAt: entry.createdAt,
+                    updatedAt: entry.updatedAt,
+                };
+            })
+            .filter((entry): entry is SharingParticipant => entry !== null);
+    }
+
+    private buildDiagramSharingParticipants(
+        diagramId: string
+    ): SharingParticipant[] {
+        return this.repository
+            .listDiagramUserAccess(diagramId)
+            .map((entry) => {
+                const user = this.repository.getUser(entry.userId);
+                if (!user) {
+                    return null;
+                }
+
+                return {
+                    user,
+                    access: entry.access,
+                    createdAt: entry.createdAt,
+                    updatedAt: entry.updatedAt,
+                };
+            })
+            .filter((entry): entry is SharingParticipant => entry !== null);
+    }
+
     private resolveSharingUpdate(
         payload: {
             scope: 'private' | 'authenticated' | 'link';
             access: 'view' | 'edit';
+            expiresAt?: string | null;
             rotateLinkToken: boolean;
         },
         record: SharingRecord
     ): Pick<
         SharingRecord,
-        'sharingScope' | 'sharingAccess' | 'shareToken' | 'shareUpdatedAt'
+        | 'sharingScope'
+        | 'sharingAccess'
+        | 'shareToken'
+        | 'shareUpdatedAt'
+        | 'shareExpiresAt'
     > {
         const scope = sharingScopeSchema.parse(payload.scope);
         const requestedAccess = sharingAccessSchema.parse(payload.access);
+        const expiresAt =
+            scope === 'link'
+                ? payload.expiresAt
+                    ? new Date(payload.expiresAt)
+                    : null
+                : null;
 
-        if (scope === 'link' && requestedAccess !== 'view') {
+        if (
+            scope === 'link' &&
+            expiresAt &&
+            (!Number.isFinite(expiresAt.getTime()) ||
+                expiresAt.getTime() <= Date.now())
+        ) {
             throw new AppError(
-                'Link sharing is read-only in this release.',
+                'Link expiration must be in the future.',
                 400,
-                'LINK_EDIT_UNSUPPORTED'
+                'LINK_EXPIRATION_INVALID'
             );
         }
 
@@ -1532,6 +1864,7 @@ export class PersistenceService {
             sharingAccess: requestedAccess,
             shareToken,
             shareUpdatedAt: new Date().toISOString(),
+            shareExpiresAt: expiresAt ? expiresAt.toISOString() : null,
         };
     }
 
@@ -1539,21 +1872,64 @@ export class PersistenceService {
         return randomBytes(SHARE_TOKEN_BYTES).toString('base64url');
     }
 
-    private toSharingSettings(
+    private toGeneralAccessSettings(
         record: SharingRecord,
         resourceType: 'project' | 'diagram',
         resourceId: string
-    ): SharingSettings {
+    ): GeneralAccessSettings {
+        const isExpired = this.isShareExpired(record);
         return {
             scope: record.sharingScope,
             access: record.sharingAccess,
             sharePath:
-                record.sharingScope === 'link' && record.shareToken
+                record.sharingScope === 'link' &&
+                record.shareToken &&
+                !isExpired
                     ? resourceType === 'project'
                         ? `/shared/projects/${resourceId}/${record.shareToken}`
                         : `/shared/diagrams/${resourceId}/${record.shareToken}`
                     : null,
             shareUpdatedAt: record.shareUpdatedAt,
+            expiresAt: record.shareExpiresAt,
+            isExpired,
+        };
+    }
+
+    private buildProjectSharingSettings(
+        project: ProjectRecord
+    ): SharingSettings {
+        const activeProject = this.getActiveProjectSharingRecord(project);
+
+        return {
+            owner: activeProject.ownerUserId
+                ? (this.repository.getUser(activeProject.ownerUserId) ?? null)
+                : null,
+            people: this.buildProjectSharingParticipants(activeProject.id),
+            generalAccess: this.toGeneralAccessSettings(
+                activeProject,
+                'project',
+                activeProject.id
+            ),
+        };
+    }
+
+    private buildDiagramSharingSettings(
+        diagram: DiagramRecord
+    ): SharingSettings {
+        const activeDiagram = this.getActiveDiagramSharingRecord(diagram);
+        const project = this.requireProject(activeDiagram.projectId);
+        const ownerUserId = activeDiagram.ownerUserId ?? project.ownerUserId;
+
+        return {
+            owner: ownerUserId
+                ? (this.repository.getUser(ownerUserId) ?? null)
+                : null,
+            people: this.buildDiagramSharingParticipants(activeDiagram.id),
+            generalAccess: this.toGeneralAccessSettings(
+                activeDiagram,
+                'diagram',
+                activeDiagram.id
+            ),
         };
     }
 
@@ -1561,11 +1937,12 @@ export class PersistenceService {
         project: ProjectRecord,
         actor?: AppUserRecord | null
     ) {
+        const activeProject = this.getActiveProjectSharingRecord(project);
         return {
-            ...project,
-            diagramCount: this.repository.listProjectDiagrams(project.id)
+            ...activeProject,
+            diagramCount: this.repository.listProjectDiagrams(activeProject.id)
                 .length,
-            access: this.getProjectAccess(project, actor),
+            access: this.getProjectAccess(activeProject, actor),
         };
     }
 
@@ -1800,26 +2177,27 @@ export class PersistenceService {
     }
 
     private toDiagramResponse(diagram: DiagramRecord, access: ResourceAccess) {
+        const activeDiagram = this.getActiveDiagramSharingRecord(diagram);
         return {
-            id: diagram.id,
-            projectId: diagram.projectId,
-            ownerUserId: diagram.ownerUserId,
-            name: diagram.name,
-            description: diagram.description,
-            databaseType: diagram.databaseType,
-            databaseEdition: diagram.databaseEdition,
-            visibility: diagram.visibility,
-            status: diagram.status,
-            sharingScope: diagram.sharingScope,
-            sharingAccess: diagram.sharingAccess,
+            id: activeDiagram.id,
+            projectId: activeDiagram.projectId,
+            ownerUserId: activeDiagram.ownerUserId,
+            name: activeDiagram.name,
+            description: activeDiagram.description,
+            databaseType: activeDiagram.databaseType,
+            databaseEdition: activeDiagram.databaseEdition,
+            visibility: activeDiagram.visibility,
+            status: activeDiagram.status,
+            sharingScope: activeDiagram.sharingScope,
+            sharingAccess: activeDiagram.sharingAccess,
             access,
-            collaboration: this.toDiagramCollaboration(diagram),
-            createdAt: diagram.createdAt,
-            updatedAt: diagram.updatedAt,
+            collaboration: this.toDiagramCollaboration(activeDiagram),
+            createdAt: activeDiagram.createdAt,
+            updatedAt: activeDiagram.updatedAt,
             diagram: {
-                ...diagram.document,
-                createdAt: diagram.document.createdAt.toISOString(),
-                updatedAt: diagram.document.updatedAt.toISOString(),
+                ...activeDiagram.document,
+                createdAt: activeDiagram.document.createdAt.toISOString(),
+                updatedAt: activeDiagram.document.updatedAt.toISOString(),
             },
         };
     }
