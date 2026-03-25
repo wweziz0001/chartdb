@@ -4,10 +4,12 @@ import {
     type AppUserRecord,
     type CollectionRecord,
     type DiagramRecord,
+    type DiagramSessionRecord,
     type ProjectRecord,
     type SharingRecord,
 } from '../repositories/app-repository.js';
 import {
+    createDiagramSessionSchema,
     createCollectionSchema,
     createProjectSchema,
     diagramDocumentSchema,
@@ -16,6 +18,7 @@ import {
     listProjectDiagramsQuerySchema,
     sharingAccessSchema,
     sharingScopeSchema,
+    updateDiagramSessionSchema,
     updateSharingSchema,
     updateCollectionSchema,
     updateDiagramSchema,
@@ -57,6 +60,49 @@ export interface SharingSettings {
     access: 'view' | 'edit';
     sharePath: string | null;
     shareUpdatedAt: string | null;
+}
+
+export interface DiagramDocumentState {
+    version: number;
+    updatedAt: string;
+    lastSavedSessionId: string | null;
+    lastSavedByUserId: string | null;
+}
+
+export interface DiagramRealtimeCapability {
+    strategy: 'optimistic-http' | 'websocket-ready';
+    liveSyncEnabled: boolean;
+    websocketEndpoint: string | null;
+    websocketProtocol: string | null;
+    sessionEndpoint: string;
+}
+
+export interface DiagramCollaborationState {
+    document: DiagramDocumentState;
+    realtime: DiagramRealtimeCapability;
+    activeSessionCount: number;
+}
+
+export interface DiagramEditSessionResponse {
+    id: string;
+    diagramId: string;
+    ownerUserId: string | null;
+    mode: 'view' | 'edit';
+    status: 'active' | 'idle' | 'stale' | 'closed';
+    clientId: string | null;
+    userAgent: string | null;
+    baseVersion: number;
+    lastSeenDocumentVersion: number;
+    createdAt: string;
+    updatedAt: string;
+    lastHeartbeatAt: string;
+    closedAt: string | null;
+    transport: {
+        syncEndpoint: string;
+        heartbeatEndpoint: string;
+        websocketEndpoint: string | null;
+        websocketProtocol: string | null;
+    };
 }
 
 const DEFAULT_USER_CONFIG_KEY = 'default_user_id';
@@ -528,6 +574,7 @@ export class PersistenceService {
             tableCount: Array.isArray(diagram.document.tables)
                 ? diagram.document.tables.length
                 : 0,
+            collaboration: this.toDiagramCollaboration(diagram),
             createdAt: diagram.createdAt,
             updatedAt: diagram.updatedAt,
         }));
@@ -543,6 +590,120 @@ export class PersistenceService {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
         return this.toDiagramResponse(diagram, access);
+    }
+
+    createDiagramSession(
+        diagramId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ) {
+        const diagram = this.requireDiagram(diagramId);
+        const access = this.getDiagramAccess(diagram, actor);
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const payload = createDiagramSessionSchema.parse(input);
+        if (payload.mode === 'edit' && !this.canEdit(access)) {
+            throw new AppError(
+                'Edit access is required to start an edit session.',
+                403,
+                'DIAGRAM_EDIT_SESSION_FORBIDDEN'
+            );
+        }
+
+        const now = new Date().toISOString();
+        const session: DiagramSessionRecord = {
+            id: generateId(),
+            diagramId: diagram.id,
+            ownerUserId: actor?.id ?? diagram.ownerUserId ?? null,
+            mode: payload.mode,
+            status: 'active',
+            clientId: payload.clientId ?? null,
+            userAgent: payload.userAgent ?? null,
+            baseVersion: diagram.documentVersion ?? 1,
+            lastSeenDocumentVersion: diagram.documentVersion ?? 1,
+            createdAt: now,
+            updatedAt: now,
+            lastHeartbeatAt: now,
+            closedAt: null,
+        };
+
+        this.repository.putDiagramSession(session);
+
+        return {
+            session: this.toDiagramSessionResponse(session),
+            collaboration: this.toDiagramCollaboration(diagram),
+        };
+    }
+
+    getDiagramSession(
+        diagramId: string,
+        sessionId: string,
+        actor?: AppUserRecord | null
+    ) {
+        const diagram = this.requireDiagram(diagramId);
+        const access = this.getDiagramAccess(diagram, actor);
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const session = this.repository.getDiagramSession(diagramId, sessionId);
+        if (!session) {
+            throw new AppError(
+                'Diagram session not found.',
+                404,
+                'DIAGRAM_SESSION_NOT_FOUND'
+            );
+        }
+
+        return {
+            session: this.toDiagramSessionResponse(session),
+            collaboration: this.toDiagramCollaboration(diagram),
+        };
+    }
+
+    updateDiagramSession(
+        diagramId: string,
+        sessionId: string,
+        input: unknown,
+        actor?: AppUserRecord | null
+    ) {
+        const diagram = this.requireDiagram(diagramId);
+        const access = this.getDiagramAccess(diagram, actor);
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const session = this.repository.getDiagramSession(diagramId, sessionId);
+        if (!session) {
+            throw new AppError(
+                'Diagram session not found.',
+                404,
+                'DIAGRAM_SESSION_NOT_FOUND'
+            );
+        }
+
+        const payload = updateDiagramSessionSchema.parse(input);
+        const now = new Date().toISOString();
+        const shouldClose = payload.close || payload.status === 'closed';
+        const nextSession: DiagramSessionRecord = {
+            ...session,
+            status: shouldClose ? 'closed' : (payload.status ?? session.status),
+            lastSeenDocumentVersion:
+                payload.lastSeenDocumentVersion ??
+                session.lastSeenDocumentVersion,
+            updatedAt: now,
+            lastHeartbeatAt: now,
+            closedAt: shouldClose ? now : session.closedAt,
+        };
+
+        this.repository.putDiagramSession(nextSession);
+
+        return {
+            session: this.toDiagramSessionResponse(nextSession),
+            collaboration: this.toDiagramCollaboration(diagram),
+        };
     }
 
     upsertDiagram(
@@ -562,7 +723,20 @@ export class PersistenceService {
             id: diagramId,
         });
         const existing = this.repository.getDiagram(diagramId);
+        this.assertExpectedDocumentVersion(existing, {
+            sessionId: payload.sessionId,
+            baseVersion: payload.baseVersion,
+        });
         const now = new Date().toISOString();
+        const normalizedDocument = this.normalizeDocument({
+            ...document,
+            createdAt: existing?.document.createdAt ?? document.createdAt,
+            updatedAt: document.updatedAt,
+        });
+        const documentChanged = this.hasDocumentChanged(
+            existing?.document,
+            normalizedDocument
+        );
 
         const record: DiagramRecord = {
             id: diagramId,
@@ -586,11 +760,18 @@ export class PersistenceService {
             sharingAccess: existing?.sharingAccess ?? DEFAULT_SHARING_ACCESS,
             shareToken: existing?.shareToken ?? null,
             shareUpdatedAt: existing?.shareUpdatedAt ?? null,
-            document: this.normalizeDocument({
-                ...document,
-                createdAt: existing?.document.createdAt ?? document.createdAt,
-                updatedAt: document.updatedAt,
-            }),
+            document: normalizedDocument,
+            documentVersion: existing
+                ? documentChanged
+                    ? (existing.documentVersion ?? 1) + 1
+                    : (existing.documentVersion ?? 1)
+                : 1,
+            documentUpdatedAt: documentChanged
+                ? now
+                : (existing?.documentUpdatedAt ?? now),
+            lastSavedSessionId:
+                payload.sessionId ?? existing?.lastSavedSessionId ?? null,
+            lastSavedByUserId: actor?.id ?? existing?.lastSavedByUserId ?? null,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
         };
@@ -632,6 +813,16 @@ export class PersistenceService {
             payload.description !== undefined
                 ? (payload.description ?? null)
                 : existing.description;
+        const document = this.normalizeDocument({
+            ...existing.document,
+            name,
+            updatedAt: nowDate,
+        });
+        const documentChanged = name !== existing.name;
+        this.assertExpectedDocumentVersion(existing, {
+            sessionId: payload.sessionId,
+            baseVersion: payload.baseVersion,
+        });
         const record: DiagramRecord = {
             ...existing,
             projectId: payload.projectId ?? existing.projectId,
@@ -644,11 +835,16 @@ export class PersistenceService {
             sharingAccess: existing.sharingAccess,
             shareToken: existing.shareToken,
             shareUpdatedAt: existing.shareUpdatedAt,
-            document: this.normalizeDocument({
-                ...existing.document,
-                name,
-                updatedAt: nowDate,
-            }),
+            document,
+            documentVersion: documentChanged
+                ? (existing.documentVersion ?? 1) + 1
+                : (existing.documentVersion ?? 1),
+            documentUpdatedAt: documentChanged
+                ? now
+                : (existing.documentUpdatedAt ?? existing.updatedAt),
+            lastSavedSessionId:
+                payload.sessionId ?? existing.lastSavedSessionId,
+            lastSavedByUserId: actor?.id ?? existing.lastSavedByUserId,
             updatedAt: now,
         };
 
@@ -762,6 +958,7 @@ export class PersistenceService {
                 tableCount: Array.isArray(diagram.document.tables)
                     ? diagram.document.tables.length
                     : 0,
+                collaboration: this.toDiagramCollaboration(diagram),
                 createdAt: diagram.createdAt,
                 updatedAt: diagram.updatedAt,
             }));
@@ -1068,6 +1265,10 @@ export class PersistenceService {
                     shareToken: null,
                     shareUpdatedAt: null,
                     document,
+                    documentVersion: 1,
+                    documentUpdatedAt: diagram.updatedAt,
+                    lastSavedSessionId: null,
+                    lastSavedByUserId: bootstrap.user.id,
                     createdAt: diagram.createdAt,
                     updatedAt: diagram.updatedAt,
                 });
@@ -1311,6 +1512,111 @@ export class PersistenceService {
         };
     }
 
+    private serializeDocumentForVersioning(document: DiagramDocument) {
+        return JSON.stringify({
+            ...document,
+            createdAt: document.createdAt.toISOString(),
+            updatedAt: document.updatedAt.toISOString(),
+        });
+    }
+
+    private hasDocumentChanged(
+        previous: DiagramDocument | undefined,
+        next: DiagramDocument
+    ) {
+        if (!previous) {
+            return true;
+        }
+
+        return (
+            this.serializeDocumentForVersioning(previous) !==
+            this.serializeDocumentForVersioning(next)
+        );
+    }
+
+    private assertExpectedDocumentVersion(
+        diagram: DiagramRecord | undefined,
+        options: {
+            sessionId?: string;
+            baseVersion?: number;
+        }
+    ) {
+        if (!diagram || options.baseVersion === undefined) {
+            return;
+        }
+
+        if (options.sessionId) {
+            const session = this.repository.getDiagramSession(
+                diagram.id,
+                options.sessionId
+            );
+            if (!session) {
+                throw new AppError(
+                    'Diagram edit session not found.',
+                    404,
+                    'DIAGRAM_SESSION_NOT_FOUND'
+                );
+            }
+
+            if (session.status === 'closed') {
+                throw new AppError(
+                    'Diagram edit session has already been closed.',
+                    409,
+                    'DIAGRAM_SESSION_CLOSED'
+                );
+            }
+        }
+
+        if (options.baseVersion !== (diagram.documentVersion ?? 1)) {
+            throw new AppError(
+                'Diagram version conflict detected. Reload before saving again.',
+                409,
+                'DIAGRAM_VERSION_CONFLICT'
+            );
+        }
+    }
+
+    private countActiveDiagramSessions(diagramId: string) {
+        return this.repository
+            .listDiagramSessions(diagramId)
+            .filter((session) => session.status !== 'closed').length;
+    }
+
+    private toDiagramCollaboration(
+        diagram: DiagramRecord
+    ): DiagramCollaborationState {
+        return {
+            document: {
+                version: diagram.documentVersion ?? 1,
+                updatedAt: diagram.documentUpdatedAt ?? diagram.updatedAt,
+                lastSavedSessionId: diagram.lastSavedSessionId ?? null,
+                lastSavedByUserId: diagram.lastSavedByUserId ?? null,
+            },
+            realtime: {
+                strategy: 'optimistic-http',
+                liveSyncEnabled: false,
+                websocketEndpoint: null,
+                websocketProtocol: null,
+                sessionEndpoint: `/api/diagrams/${diagram.id}/sessions`,
+            },
+            activeSessionCount: this.countActiveDiagramSessions(diagram.id),
+        };
+    }
+
+    private toDiagramSessionResponse(
+        session: DiagramSessionRecord
+    ): DiagramEditSessionResponse {
+        return {
+            ...session,
+            transport: {
+                syncEndpoint: `/api/diagrams/${session.diagramId}`,
+                heartbeatEndpoint: `/api/diagrams/${session.diagramId}/sessions/${session.id}`,
+                websocketEndpoint: null,
+                websocketProtocol: null,
+            },
+        };
+    }
+
     private resolveCollectionId(collectionId?: string | null) {
         if (collectionId === undefined || collectionId === null) {
             return null;
@@ -1431,6 +1737,7 @@ export class PersistenceService {
             sharingScope: diagram.sharingScope,
             sharingAccess: diagram.sharingAccess,
             access,
+            collaboration: this.toDiagramCollaboration(diagram),
             createdAt: diagram.createdAt,
             updatedAt: diagram.updatedAt,
             diagram: {

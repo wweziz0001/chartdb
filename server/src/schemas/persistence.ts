@@ -20,6 +20,13 @@ export const diagramVisibilitySchema = z.enum([
     'public',
 ]);
 export const diagramStatusSchema = z.enum(['draft', 'active', 'archived']);
+export const diagramSessionModeSchema = z.enum(['view', 'edit']);
+export const diagramSessionStatusSchema = z.enum([
+    'active',
+    'idle',
+    'stale',
+    'closed',
+]);
 
 const diagramRecordSchema = z.record(z.string(), z.unknown());
 const optionalDescriptionSchema = z
@@ -47,6 +54,74 @@ export const diagramDocumentSchema = z.object({
 });
 
 export type DiagramDocument = z.infer<typeof diagramDocumentSchema>;
+
+export const diagramDocumentVersionSchema = z.object({
+    version: z.number().int().min(1),
+    updatedAt: z.coerce.date(),
+    lastSavedSessionId: z.string().trim().min(1).nullable(),
+    lastSavedByUserId: z.string().trim().min(1).nullable(),
+});
+
+export type DiagramDocumentVersion = z.infer<
+    typeof diagramDocumentVersionSchema
+>;
+
+export const diagramRealtimeStrategySchema = z.enum([
+    'optimistic-http',
+    'websocket-ready',
+]);
+
+export const diagramRealtimeCapabilitySchema = z.object({
+    strategy: diagramRealtimeStrategySchema,
+    liveSyncEnabled: z.boolean(),
+    websocketEndpoint: z.string().trim().min(1).nullable(),
+    websocketProtocol: z.string().trim().min(1).nullable(),
+    sessionEndpoint: z.string().trim().min(1),
+});
+
+export type DiagramRealtimeCapability = z.infer<
+    typeof diagramRealtimeCapabilitySchema
+>;
+
+export const diagramCollaborationStateSchema = z.object({
+    document: diagramDocumentVersionSchema,
+    realtime: diagramRealtimeCapabilitySchema,
+    activeSessionCount: z.number().int().min(0),
+});
+
+export type DiagramCollaborationState = z.infer<
+    typeof diagramCollaborationStateSchema
+>;
+
+export const diagramSessionTransportSchema = z.object({
+    syncEndpoint: z.string().trim().min(1),
+    heartbeatEndpoint: z.string().trim().min(1),
+    websocketEndpoint: z.string().trim().min(1).nullable(),
+    websocketProtocol: z.string().trim().min(1).nullable(),
+});
+
+export type DiagramSessionTransport = z.infer<
+    typeof diagramSessionTransportSchema
+>;
+
+export const diagramEditSessionSchema = z.object({
+    id: z.string().trim().min(1),
+    diagramId: z.string().trim().min(1),
+    ownerUserId: z.string().trim().min(1).nullable(),
+    mode: diagramSessionModeSchema,
+    status: diagramSessionStatusSchema,
+    clientId: z.string().trim().min(1).nullable(),
+    userAgent: z.string().trim().min(1).nullable(),
+    baseVersion: z.number().int().min(1),
+    lastSeenDocumentVersion: z.number().int().min(1),
+    createdAt: z.coerce.date(),
+    updatedAt: z.coerce.date(),
+    lastHeartbeatAt: z.coerce.date(),
+    closedAt: z.coerce.date().nullable(),
+    transport: diagramSessionTransportSchema,
+});
+
+export type DiagramEditSession = z.infer<typeof diagramEditSessionSchema>;
 
 export const createCollectionSchema = z.object({
     name: z.string().trim().min(1).max(120),
@@ -109,6 +184,8 @@ export const upsertDiagramSchema = z.object({
     visibility: diagramVisibilitySchema.optional(),
     status: diagramStatusSchema.optional(),
     description: optionalDescriptionSchema,
+    sessionId: z.string().trim().min(1).optional(),
+    baseVersion: z.number().int().min(1).optional(),
     diagram: diagramDocumentSchema,
 });
 
@@ -120,7 +197,31 @@ export const updateDiagramSchema = z
         description: z.string().trim().max(500).nullable().optional(),
         visibility: diagramVisibilitySchema.optional(),
         status: diagramStatusSchema.optional(),
+        sessionId: z.string().trim().min(1).optional(),
+        baseVersion: z.number().int().min(1).optional(),
     })
     .refine((value) => Object.keys(value).length > 0, {
         message: 'At least one diagram field must be updated.',
     });
+
+export const createDiagramSessionSchema = z.object({
+    mode: diagramSessionModeSchema.optional().default('edit'),
+    clientId: z.string().trim().min(1).max(120).optional(),
+    userAgent: z.string().trim().min(1).max(500).optional(),
+});
+
+export const updateDiagramSessionSchema = z
+    .object({
+        status: diagramSessionStatusSchema.optional(),
+        lastSeenDocumentVersion: z.number().int().min(1).optional(),
+        close: z.coerce.boolean().optional().default(false),
+    })
+    .refine(
+        (value) =>
+            value.close ||
+            value.status !== undefined ||
+            value.lastSeenDocumentVersion !== undefined,
+        {
+            message: 'At least one diagram session field must be updated.',
+        }
+    );
