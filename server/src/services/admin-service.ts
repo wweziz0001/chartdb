@@ -116,6 +116,11 @@ export class AdminService {
         const diagrams = this.repository.listDiagrams();
         const collections = this.repository.listCollections();
         const bootstrap = this.authService.getBootstrapStatus();
+        const sharingRecords =
+            projects.filter((project) => project.sharingScope !== 'private')
+                .length +
+            diagrams.filter((diagram) => diagram.sharingScope !== 'private')
+                .length;
 
         return {
             generatedAt,
@@ -127,7 +132,7 @@ export class AdminService {
                 diagrams: diagrams.length,
                 activeSessions:
                     this.repository.countActiveSessions(generatedAt),
-                sharingRecords: null,
+                sharingRecords,
             },
             platform: {
                 environment: this.env.nodeEnv,
@@ -180,8 +185,8 @@ export class AdminService {
                 },
             },
             sharing: {
-                supported: false,
-                totalRecords: null,
+                supported: true,
+                totalRecords: sharingRecords,
             },
         };
     }

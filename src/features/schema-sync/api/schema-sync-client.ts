@@ -46,13 +46,12 @@ export const schemaSyncClient = {
     previewChanges: async (payload: {
         baselineSnapshotId: string;
         targetSchema: CanonicalSchema;
-        actor: string;
     }) =>
         requestJson<{ plan: ChangePlan }>('/api/schema/diff', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
-    applyChanges: async (payload: ApplySchemaRequest) =>
+    applyChanges: async (payload: Omit<ApplySchemaRequest, 'actor'>) =>
         requestJson<ApplySchemaResponse>('/api/schema/apply', {
             method: 'POST',
             body: JSON.stringify(payload),
