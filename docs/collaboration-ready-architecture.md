@@ -1,5 +1,9 @@
 # Collaboration-Ready Architecture
 
+This document describes the persistence/session foundation that made live collaboration possible.
+
+For the currently shipped realtime behavior, setup steps, and limitations, see [`docs/realtime-collaboration.md`](./realtime-collaboration.md).
+
 ## Scope
 
 This change prepares ChartDB for future collaborative editing without turning on full multiplayer yet.
