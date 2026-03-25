@@ -204,6 +204,7 @@ describe('admin routes', () => {
             sharingAccess: 'view',
             shareToken: null,
             shareUpdatedAt: null,
+            shareExpiresAt: null,
             createdAt: now,
             updatedAt: now,
         });
@@ -219,6 +220,7 @@ describe('admin routes', () => {
             sharingAccess: 'view',
             shareToken: null,
             shareUpdatedAt: null,
+            shareExpiresAt: null,
             createdAt: now,
             updatedAt: now,
         });
@@ -236,6 +238,7 @@ describe('admin routes', () => {
             sharingAccess: 'view',
             shareToken: 'shared-diagram-token',
             shareUpdatedAt: now,
+            shareExpiresAt: null,
             document: createDiagramDocument('diagram-1', 'Warehouse ERD'),
             createdAt: now,
             updatedAt: now,
@@ -254,6 +257,7 @@ describe('admin routes', () => {
             sharingAccess: 'view',
             shareToken: null,
             shareUpdatedAt: null,
+            shareExpiresAt: null,
             document: createDiagramDocument('diagram-2', 'Legacy ERD'),
             createdAt: now,
             updatedAt: now,
