@@ -188,6 +188,18 @@ const formatExpirationSummary = (
     ).toLocaleString()}.`;
 };
 
+const formatAccessTimestamp = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return 'Recently updated';
+    }
+
+    return parsed.toLocaleString();
+};
+
+const getAccessLabel = (access: SharingAccess) =>
+    access === 'edit' ? 'Editor' : 'Viewer';
+
 export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
     open,
     onOpenChange,
@@ -531,6 +543,40 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                     ) : (
                         <>
                             <section className="space-y-3 rounded-xl border bg-card/40 p-4">
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                    <div className="rounded-xl border bg-background p-3">
+                                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            Owner
+                                        </p>
+                                        <p className="mt-1 truncate text-sm font-semibold">
+                                            {sharing.owner?.displayName ??
+                                                'Unknown owner'}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl border bg-background p-3">
+                                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            Direct access
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold">
+                                            {peopleWithAccess.length} people
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl border bg-background p-3">
+                                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            General access
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold">
+                                            {sharing.generalAccess.scope ===
+                                            'link'
+                                                ? `Anyone with the link (${getAccessLabel(
+                                                      sharing.generalAccess
+                                                          .access
+                                                  )})`
+                                                : 'Restricted'}
+                                        </p>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <h3 className="text-sm font-semibold">
                                         Add people
@@ -589,15 +635,23 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                                                 )
                                                             }
                                                         >
-                                                            <span className="truncate font-medium">
-                                                                {
-                                                                    user.displayName
-                                                                }
-                                                            </span>
-                                                            <span className="truncate text-xs text-muted-foreground">
-                                                                {user.email ??
-                                                                    'No email'}
-                                                            </span>
+                                                            <div className="min-w-0">
+                                                                <span className="block truncate font-medium">
+                                                                    {
+                                                                        user.displayName
+                                                                    }
+                                                                </span>
+                                                                <span className="block truncate text-xs text-muted-foreground">
+                                                                    {user.email ??
+                                                                        'No email'}
+                                                                </span>
+                                                            </div>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="shrink-0"
+                                                            >
+                                                                Add
+                                                            </Badge>
                                                         </button>
                                                     ))}
                                                 </div>
@@ -649,12 +703,20 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                 </div>
 
                                 {selectedUser ? (
-                                    <p className="text-xs text-muted-foreground">
-                                        Selected: {selectedUser.displayName}
-                                        {selectedUser.email
-                                            ? ` (${selectedUser.email})`
-                                            : ''}
-                                    </p>
+                                    <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed bg-background px-3 py-2">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium">
+                                                {selectedUser.displayName}
+                                            </p>
+                                            <p className="truncate text-xs text-muted-foreground">
+                                                {selectedUser.email ??
+                                                    'No email'}
+                                            </p>
+                                        </div>
+                                        <Badge variant="secondary">
+                                            {getAccessLabel(personAccess)}
+                                        </Badge>
+                                    </div>
                                 ) : null}
                             </section>
 
@@ -725,10 +787,26 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                                                     .displayName
                                                             }
                                                         </p>
-                                                        <p className="truncate text-xs text-muted-foreground">
-                                                            {person.user
-                                                                .email ??
-                                                                'No email'}
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <p className="truncate text-xs text-muted-foreground">
+                                                                {person.user
+                                                                    .email ??
+                                                                    'No email'}
+                                                            </p>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="text-[10px] uppercase tracking-[0.14em]"
+                                                            >
+                                                                {getAccessLabel(
+                                                                    person.access
+                                                                )}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="mt-1 text-[11px] text-muted-foreground">
+                                                            Updated{' '}
+                                                            {formatAccessTimestamp(
+                                                                person.updatedAt
+                                                            )}
                                                         </p>
                                                     </div>
                                                 </div>
