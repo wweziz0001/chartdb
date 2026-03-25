@@ -9,6 +9,7 @@ import { decryptJson, encryptJson } from '../security/encryption.js';
 import type { MetadataRepository } from '../repositories/metadata-repository.js';
 import { generateId } from '../utils/id.js';
 import { testPostgresConnection } from '../postgres/introspection.js';
+import { AppError } from '../utils/app-error.js';
 
 export class ConnectionsService {
     constructor(
@@ -23,7 +24,11 @@ export class ConnectionsService {
     getDecryptedSecret(connectionId: string): DatabaseConnectionSecret {
         const connection = this.repository.getConnection(connectionId);
         if (!connection) {
-            throw new Error(`Connection ${connectionId} not found`);
+            throw new AppError(
+                `Connection ${connectionId} not found.`,
+                404,
+                'connection_not_found'
+            );
         }
         return decryptJson<DatabaseConnectionSecret>(
             connection.secretCiphertext,
@@ -56,7 +61,11 @@ export class ConnectionsService {
     updateConnection(id: string, payload: ConnectionUpsert): ConnectionSummary {
         const existing = this.repository.getConnection(id);
         if (!existing) {
-            throw new Error(`Connection ${id} not found`);
+            throw new AppError(
+                `Connection ${id} not found.`,
+                404,
+                'connection_not_found'
+            );
         }
 
         this.repository.putConnection({
@@ -77,6 +86,15 @@ export class ConnectionsService {
     }
 
     deleteConnection(id: string) {
+        const existing = this.repository.getConnection(id);
+        if (!existing) {
+            throw new AppError(
+                `Connection ${id} not found.`,
+                404,
+                'connection_not_found'
+            );
+        }
+
         this.repository.deleteConnection(id);
     }
 
