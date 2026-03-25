@@ -108,7 +108,8 @@ const login = async (
 
 const createSharedDiagramFixture = async (
     app: ReturnType<typeof buildApp>,
-    ownerCookie: string
+    ownerCookie: string,
+    access: 'view' | 'edit' = 'edit'
 ) => {
     const bootstrapResponse = await app.inject({
         method: 'GET',
@@ -127,7 +128,7 @@ const createSharedDiagramFixture = async (
         },
         payload: {
             scope: 'authenticated',
-            access: 'edit',
+            access,
         },
     });
     expect(shareResponse.statusCode).toBe(200);
@@ -655,6 +656,129 @@ describe('collaboration routes', () => {
         expect(documentEvent.event).toBe('document');
         expect(documentEvent.data.sessionId).toBe(ownerSession.session.id);
         expect(documentEvent.data.collaboration.document.version).toBe(2);
+
+        await stream.close();
+        await app.close();
+    });
+
+    it('keeps viewers read-only while still allowing live document updates', async () => {
+        const env = createAuthEnv();
+        const repository = new AppRepository(env.appDbPath);
+        const app = buildApp({
+            env,
+            appRepository: repository,
+        });
+        repository.putUserAuthRecord(createMemberUser());
+
+        const ownerCookie = await login(
+            app,
+            'owner@example.com',
+            'super-secret-password'
+        );
+        const memberCookie = await login(
+            app,
+            'member@example.com',
+            'member-password'
+        );
+        const { diagramId } = await createSharedDiagramFixture(
+            app,
+            ownerCookie,
+            'view'
+        );
+
+        const forbiddenEditSessionResponse = await app.inject({
+            method: 'POST',
+            url: `/api/diagrams/${diagramId}/sessions`,
+            headers: {
+                cookie: memberCookie,
+            },
+            payload: {
+                mode: 'edit',
+                clientId: 'viewer-edit-attempt',
+                userAgent: 'vitest',
+            },
+        });
+        expect(forbiddenEditSessionResponse.statusCode).toBe(403);
+        expect(forbiddenEditSessionResponse.json()).toEqual(
+            expect.objectContaining({
+                code: 'DIAGRAM_EDIT_SESSION_FORBIDDEN',
+            })
+        );
+
+        const viewerSession = await createDiagramSession(
+            app,
+            diagramId,
+            memberCookie,
+            'view'
+        );
+        const ownerSession = await createDiagramSession(
+            app,
+            diagramId,
+            ownerCookie
+        );
+
+        const baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
+        const stream = await openEventStream(
+            `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${viewerSession.session.id}`,
+            memberCookie
+        );
+
+        const snapshotEvent = await stream.nextEvent();
+        expect(snapshotEvent.event).toBe('snapshot');
+        expect(snapshotEvent.data.collaboration.document.version).toBe(1);
+
+        const forbiddenUpdateResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/${diagramId}`,
+            headers: {
+                cookie: memberCookie,
+            },
+            payload: {
+                name: 'Viewer Attempted Rename',
+                sessionId: viewerSession.session.id,
+                baseVersion: viewerSession.session.baseVersion,
+            },
+        });
+        expect(forbiddenUpdateResponse.statusCode).toBe(404);
+        expect(forbiddenUpdateResponse.json()).toEqual(
+            expect.objectContaining({
+                code: 'DIAGRAM_NOT_FOUND',
+            })
+        );
+
+        const ownerUpdateResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/${diagramId}`,
+            headers: {
+                cookie: ownerCookie,
+            },
+            payload: {
+                name: 'Owner Updated Shared Diagram',
+                sessionId: ownerSession.session.id,
+                baseVersion: ownerSession.session.baseVersion,
+            },
+        });
+        expect(ownerUpdateResponse.statusCode).toBe(200);
+
+        const documentEvent = await stream.nextEvent();
+        expect(documentEvent.event).toBe('document');
+        expect(documentEvent.data.sessionId).toBe(ownerSession.session.id);
+        expect(documentEvent.data.collaboration.document.version).toBe(2);
+
+        const viewerReloadResponse = await app.inject({
+            method: 'GET',
+            url: `/api/diagrams/${diagramId}`,
+            headers: {
+                cookie: memberCookie,
+            },
+        });
+        expect(viewerReloadResponse.statusCode).toBe(200);
+        expect(viewerReloadResponse.json()).toEqual(
+            expect.objectContaining({
+                name: 'Owner Updated Shared Diagram',
+                access: 'view',
+            })
+        );
 
         await stream.close();
         await app.close();
