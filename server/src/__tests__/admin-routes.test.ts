@@ -200,7 +200,7 @@ describe('admin routes', () => {
             ownerUserId: owner!.id,
             visibility: 'workspace',
             status: 'active',
-            sharingScope: 'private',
+            sharingScope: 'authenticated',
             sharingAccess: 'view',
             shareToken: null,
             shareUpdatedAt: null,
@@ -232,10 +232,10 @@ describe('admin routes', () => {
             databaseEdition: null,
             visibility: 'workspace',
             status: 'active',
-            sharingScope: 'private',
+            sharingScope: 'link',
             sharingAccess: 'view',
-            shareToken: null,
-            shareUpdatedAt: null,
+            shareToken: 'shared-diagram-token',
+            shareUpdatedAt: now,
             document: createDiagramDocument('diagram-1', 'Warehouse ERD'),
             createdAt: now,
             updatedAt: now,
@@ -277,7 +277,7 @@ describe('admin routes', () => {
                     projects: 2,
                     diagrams: 2,
                     activeSessions: 1,
-                    sharingRecords: null,
+                    sharingRecords: 2,
                 }),
                 platform: expect.objectContaining({
                     authMode: 'password',
@@ -333,8 +333,8 @@ describe('admin routes', () => {
                     },
                 },
                 sharing: {
-                    supported: false,
-                    totalRecords: null,
+                    supported: true,
+                    totalRecords: 2,
                 },
             })
         );
