@@ -100,8 +100,9 @@ export interface PersistedDiagramDocumentState {
 }
 
 export interface PersistedDiagramRealtimeCapability {
-    strategy: 'optimistic-http' | 'websocket-ready';
+    strategy: 'optimistic-http' | 'event-stream' | 'websocket-ready';
     liveSyncEnabled: boolean;
+    eventsEndpoint: string | null;
     websocketEndpoint: string | null;
     websocketProtocol: string | null;
     sessionEndpoint: string;
@@ -116,6 +117,7 @@ export interface PersistedDiagramCollaborationState {
 export interface PersistedDiagramSessionTransport {
     syncEndpoint: string;
     heartbeatEndpoint: string;
+    eventsEndpoint: string | null;
     websocketEndpoint: string | null;
     websocketProtocol: string | null;
 }
@@ -139,6 +141,14 @@ export interface PersistedDiagramEditSession {
 
 export interface PersistedDiagramSessionResponse {
     session: PersistedDiagramEditSession;
+    collaboration: PersistedDiagramCollaborationState;
+}
+
+export interface PersistedDiagramCollaborationEvent {
+    type: 'snapshot' | 'session' | 'document';
+    diagramId: string;
+    sessionId: string | null;
+    emittedAt: string;
     collaboration: PersistedDiagramCollaborationState;
 }
 

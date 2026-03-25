@@ -159,6 +159,17 @@ export interface StorageContext {
     getDiagramSessionState: (
         diagramId: string
     ) => Promise<DiagramSessionState | undefined>;
+    subscribeToDiagramSessionState: (
+        diagramId: string,
+        listener: (state: DiagramSessionState | undefined) => void
+    ) => () => void;
+    updateDiagramSessionAwareness: (
+        diagramId: string,
+        awareness: {
+            activeSessionCount: number;
+        }
+    ) => DiagramSessionState | undefined;
+    hasPendingDiagramSync: (diagramId: string) => boolean;
     heartbeatDiagramSession: (params: {
         diagramId: string;
         sessionId: string;
@@ -345,6 +356,9 @@ export const storageInitialValue: StorageContext = {
     saveDiagram: emptyFn,
     activateDiagramSession: emptyFn,
     getDiagramSessionState: emptyFn,
+    subscribeToDiagramSessionState: emptyFn,
+    updateDiagramSessionAwareness: emptyFn,
+    hasPendingDiagramSync: () => false,
     heartbeatDiagramSession: emptyFn,
     releaseDiagramSession: emptyFn,
     saveDiagramAs: emptyFn,

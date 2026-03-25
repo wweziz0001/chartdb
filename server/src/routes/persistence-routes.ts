@@ -157,6 +157,72 @@ export const registerPersistenceRoutes = (
         );
     });
 
+    app.get('/api/diagrams/:id/events', async (request, reply) => {
+        const params = request.params as { id: string };
+        const query = request.query as { sessionId?: string };
+        const sessionId = query.sessionId?.trim();
+
+        if (!sessionId) {
+            return reply.code(400).send({
+                error: 'Diagram session id is required.',
+                code: 'DIAGRAM_SESSION_ID_REQUIRED',
+            });
+        }
+
+        const snapshot =
+            context.persistenceService.assertCanSubscribeToDiagramEvents(
+                params.id,
+                sessionId,
+                request.auth.user
+            );
+
+        reply.hijack();
+        reply.raw.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+        });
+        reply.raw.flushHeaders?.();
+
+        const sendEvent = (event: { type: string; payload: unknown }) => {
+            reply.raw.write(`event: ${event.type}\n`);
+            reply.raw.write(`data: ${JSON.stringify(event.payload)}\n\n`);
+        };
+
+        sendEvent({
+            type: 'snapshot',
+            payload: {
+                type: 'snapshot',
+                diagramId: params.id,
+                sessionId: snapshot.collaboration.document.lastSavedSessionId,
+                emittedAt: new Date().toISOString(),
+                collaboration: snapshot.collaboration,
+            },
+        });
+
+        const unsubscribe = context.diagramCollaborationBroker.subscribe(
+            params.id,
+            (event) => {
+                sendEvent({
+                    type: event.type,
+                    payload: event,
+                });
+            }
+        );
+
+        const heartbeat = setInterval(() => {
+            reply.raw.write(': keep-alive\n\n');
+        }, 15000);
+
+        const cleanup = () => {
+            clearInterval(heartbeat);
+            unsubscribe();
+        };
+
+        request.raw.on('close', cleanup);
+        request.raw.on('aborted', cleanup);
+    });
+
     app.patch('/api/diagrams/:id/sessions/:sessionId', async (request) => {
         const params = request.params as { id: string; sessionId: string };
         return context.persistenceService.updateDiagramSession(

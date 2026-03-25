@@ -137,6 +137,7 @@ See [Project Collections](./docs/project-collections.md) for the organization mo
 See [Project Backup Format](./docs/project-backup-format.md) for the backup/import archive format.
 See [Optional Authentication](./docs/optional-authentication.md) for self-hosted auth modes and [OIDC Authentication](./docs/oidc-authentication.md) for enterprise SSO setup.
 See [Scoped Sharing](./docs/scoped-sharing.md) for private, authenticated, and link-based sharing rules.
+See [Real-Time Collaboration](./docs/realtime-collaboration.md) for shared editing architecture, setup, and current limitations.
 See [Admin Dashboard](./docs/admin-dashboard.md) for the basic self-hosted admin surface.
 
 ### Full Local Stack With Docker
@@ -310,6 +311,7 @@ See [docs/backend-persistence-foundation.md](./docs/backend-persistence-foundati
 See [docs/project-backup-format.md](./docs/project-backup-format.md) for the saved project backup and restore workflow.
 See [docs/optional-authentication.md](./docs/optional-authentication.md) for optional auth modes and [docs/oidc-authentication.md](./docs/oidc-authentication.md) for OIDC and Keycloak setup.
 See [docs/scoped-sharing.md](./docs/scoped-sharing.md) for sharing modes, shared routes, and security behavior.
+See [docs/realtime-collaboration.md](./docs/realtime-collaboration.md) for the live collaboration transport, setup flow, and current guardrails.
 See [docs/admin-dashboard.md](./docs/admin-dashboard.md) for the admin overview surface that ships with self-hosted auth.
 
 ## Security Considerations

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import type { DBTable } from '@/lib/domain/db-table';
 import { deepCopy, generateId } from '@/lib/utils';
 import { defaultTableColor, defaultAreaColor, viewColor } from '@/lib/colors';
@@ -36,11 +42,23 @@ import {
 import { getDefaultPrimaryKeyType } from '@/lib/data/data-types/data-types';
 import type { DiagramSchemaSync } from '@/lib/domain/schema-sync';
 import type { DiagramSessionState } from '../storage-context/storage-context';
+import { useToast } from '@/components/toast/use-toast';
+import { ToastAction } from '@/components/toast/toast';
+import type { PersistedDiagramCollaborationEvent } from '@/features/persistence/api/persistence-client';
 
 export interface ChartDBProviderProps {
     diagram?: Diagram;
     readonly?: boolean;
 }
+
+const FULL_DIAGRAM_LOAD_OPTIONS = {
+    includeRelationships: true,
+    includeTables: true,
+    includeDependencies: true,
+    includeAreas: true,
+    includeCustomTypes: true,
+    includeNotes: true,
+};
 
 export const ChartDBProvider: React.FC<
     React.PropsWithChildren<ChartDBProviderProps>
@@ -50,6 +68,7 @@ export const ChartDBProvider: React.FC<
     const events = useEventEmitter<ChartDBEvent>();
     const { addUndoAction, resetRedoStack, resetUndoStack } =
         useRedoUndoStack();
+    const { toast, dismiss } = useToast();
 
     const [diagramId, setDiagramId] = useState('');
     const [diagramName, setDiagramName] = useState('');
@@ -77,6 +96,9 @@ export const ChartDBProvider: React.FC<
     );
     const [notes, setNotes] = useState<Note[]>(diagram?.notes ?? []);
     const [diagramSession, setDiagramSession] = useState<DiagramSessionState>();
+    const applyingRemoteRefreshRef = useRef(false);
+    const remoteRefreshTimerRef = useRef<number>();
+    const staleToastIdRef = useRef<string>();
 
     const { events: diffEvents } = useDiff();
 
@@ -178,6 +200,26 @@ export const ChartDBProvider: React.FC<
             diagramUpdatedAt,
         ]
     );
+
+    useEffect(() => {
+        if (!diagramId) {
+            setDiagramSession(undefined);
+            return;
+        }
+
+        return storageDB.subscribeToDiagramSessionState(
+            diagramId,
+            setDiagramSession
+        );
+    }, [diagramId, storageDB]);
+
+    useEffect(() => {
+        return () => {
+            if (remoteRefreshTimerRef.current !== undefined) {
+                window.clearTimeout(remoteRefreshTimerRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (!diagramSession?.session.id || !diagramId) {
@@ -1992,6 +2034,26 @@ export const ChartDBProvider: React.FC<
             ]
         );
 
+    const refreshDiagramFromRemote = useCallback(async () => {
+        if (!diagramId || applyingRemoteRefreshRef.current) {
+            return;
+        }
+
+        applyingRemoteRefreshRef.current = true;
+
+        try {
+            const nextDiagram = await storageDB.getDiagram(
+                diagramId,
+                FULL_DIAGRAM_LOAD_OPTIONS
+            );
+            if (nextDiagram) {
+                loadDiagramFromData(nextDiagram);
+            }
+        } finally {
+            applyingRemoteRefreshRef.current = false;
+        }
+    }, [diagramId, loadDiagramFromData, storageDB]);
+
     const updateDiagramData: ChartDBContext['updateDiagramData'] = useCallback(
         async (diagram, options) => {
             const st = options?.forceUpdateStorage ? storageDB : db;
@@ -2011,12 +2073,7 @@ export const ChartDBProvider: React.FC<
             }
 
             const diagram = await storageDB.getDiagram(diagramId, {
-                includeRelationships: true,
-                includeTables: true,
-                includeDependencies: true,
-                includeAreas: true,
-                includeCustomTypes: true,
-                includeNotes: true,
+                ...FULL_DIAGRAM_LOAD_OPTIONS,
             });
 
             if (diagram) {
@@ -2043,6 +2100,166 @@ export const ChartDBProvider: React.FC<
         },
         [diagramSession, loadDiagramFromData, readonly, storageDB]
     );
+
+    const diagramSessionId = diagramSession?.session.id;
+    const diagramSessionStatus = diagramSession?.session.status;
+    const diagramEventsEndpoint =
+        diagramSession?.session.transport.eventsEndpoint;
+    const currentDocumentVersion =
+        diagramSession?.collaboration.document.version ?? 0;
+
+    useEffect(() => {
+        if (!diagramId || !diagramSessionId || !diagramEventsEndpoint) {
+            return;
+        }
+
+        const endpoint = new URL(diagramEventsEndpoint, window.location.origin);
+        endpoint.searchParams.set('sessionId', diagramSessionId);
+
+        const scheduleRemoteRefresh = (attempt = 0) => {
+            if (remoteRefreshTimerRef.current !== undefined) {
+                window.clearTimeout(remoteRefreshTimerRef.current);
+            }
+
+            remoteRefreshTimerRef.current = window.setTimeout(() => {
+                if (!diagramId || diagramSessionStatus === 'stale') {
+                    return;
+                }
+
+                if (storageDB.hasPendingDiagramSync(diagramId)) {
+                    if (attempt < 20) {
+                        scheduleRemoteRefresh(attempt + 1);
+                    }
+                    return;
+                }
+
+                void refreshDiagramFromRemote();
+            }, 600);
+        };
+
+        const handleEvent = (message: MessageEvent<string>) => {
+            let event: PersistedDiagramCollaborationEvent;
+
+            try {
+                event = JSON.parse(
+                    message.data
+                ) as PersistedDiagramCollaborationEvent;
+            } catch (error) {
+                console.warn(
+                    'Failed to parse diagram collaboration event payload.',
+                    {
+                        diagramId,
+                        error,
+                    }
+                );
+                return;
+            }
+
+            storageDB.updateDiagramSessionAwareness(diagramId, {
+                activeSessionCount: event.collaboration.activeSessionCount,
+            });
+
+            if (
+                event.collaboration.document.version <= currentDocumentVersion
+            ) {
+                return;
+            }
+
+            if (event.sessionId === diagramSessionId) {
+                return;
+            }
+
+            if (
+                diagramSessionStatus === 'stale' ||
+                storageDB.hasPendingDiagramSync(diagramId)
+            ) {
+                scheduleRemoteRefresh();
+                return;
+            }
+
+            void refreshDiagramFromRemote();
+        };
+
+        const eventSource = new EventSource(endpoint.toString());
+        eventSource.addEventListener('snapshot', handleEvent);
+        eventSource.addEventListener('session', handleEvent);
+        eventSource.addEventListener('document', handleEvent);
+        eventSource.onerror = () => {
+            console.warn('Diagram collaboration stream disconnected.', {
+                diagramId,
+                sessionId: diagramSessionId,
+            });
+        };
+
+        return () => {
+            if (remoteRefreshTimerRef.current !== undefined) {
+                window.clearTimeout(remoteRefreshTimerRef.current);
+                remoteRefreshTimerRef.current = undefined;
+            }
+
+            eventSource.close();
+        };
+    }, [
+        currentDocumentVersion,
+        diagramEventsEndpoint,
+        diagramId,
+        diagramSessionId,
+        diagramSessionStatus,
+        refreshDiagramFromRemote,
+        storageDB,
+    ]);
+
+    useEffect(() => {
+        if (
+            diagramSession?.session.status !== 'stale' ||
+            readonly ||
+            !diagramId
+        ) {
+            if (staleToastIdRef.current) {
+                dismiss(staleToastIdRef.current);
+                staleToastIdRef.current = undefined;
+            }
+            return;
+        }
+
+        if (staleToastIdRef.current) {
+            return;
+        }
+
+        const staleToast = toast({
+            variant: 'destructive',
+            title: 'Collaboration is out of date',
+            description:
+                'Another collaborator saved a newer version. Reload to continue editing safely.',
+            action: (
+                <ToastAction
+                    altText="Reload diagram"
+                    onClick={() => {
+                        void loadDiagram(diagramId);
+                    }}
+                >
+                    Reload
+                </ToastAction>
+            ),
+            hideCloseButton: true,
+        });
+
+        staleToastIdRef.current = staleToast.id;
+
+        return () => {
+            staleToast.dismiss();
+            if (staleToastIdRef.current === staleToast.id) {
+                staleToastIdRef.current = undefined;
+            }
+        };
+    }, [
+        diagramId,
+        diagramSession?.session.status,
+        dismiss,
+        loadDiagram,
+        readonly,
+        toast,
+    ]);
 
     // Custom type operations
     const getCustomType: ChartDBContext['getCustomType'] = useCallback(
