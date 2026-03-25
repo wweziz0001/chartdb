@@ -56,6 +56,7 @@ describe('parseServerEnv', () => {
         expect(env.oidcScopes).toBe('openid profile email');
         expect(env.bootstrapSetupCodeTtlMs).toBeGreaterThan(0);
         expect(env.bootstrapSetupCodeMaxAttempts).toBeGreaterThan(0);
+        expect(env.trustProxy).toBe(false);
     });
 
     it('requires env-assisted password bootstrap credentials to be set together', () => {
@@ -128,5 +129,27 @@ describe('parseServerEnv', () => {
         expect(env.oidcRedirectUrl).toBeNull();
         expect(env.oidcLogoutUrl).toBeNull();
         expect(env.sessionCookieSecure).toBe(false);
+    });
+
+    it('supports trust proxy as a hop count', () => {
+        const env = parseServerEnv(
+            createEnvInput({
+                CHARTDB_TRUST_PROXY: '1',
+            })
+        );
+
+        expect(env.trustProxy).toBe(1);
+    });
+
+    it('collects runtime warnings for ephemeral development secrets', () => {
+        const env = parseServerEnv(
+            createEnvInput({
+                CHARTDB_SECRET_KEY: '',
+            })
+        );
+
+        expect(env.runtimeWarnings).toContain(
+            'CHARTDB_SECRET_KEY is not configured. Using an ephemeral development key.'
+        );
     });
 });

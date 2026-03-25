@@ -52,20 +52,53 @@ afterEach(() => {
 });
 
 describe('health routes', () => {
-    it('returns backend and persistence readiness', async () => {
+    it('returns backend liveness, readiness, and health details', async () => {
         const app = buildApp({ env: createTestEnv() });
-        const response = await app.inject({
+        const livez = await app.inject({
+            method: 'GET',
+            url: '/api/livez',
+        });
+        const readyz = await app.inject({
+            method: 'GET',
+            url: '/api/readyz',
+        });
+        const health = await app.inject({
             method: 'GET',
             url: '/api/health',
         });
 
-        expect(response.statusCode).toBe(200);
-        expect(response.json()).toMatchObject({
+        expect(livez.statusCode).toBe(200);
+        expect(livez.json()).toMatchObject({
+            ok: true,
+            service: 'chartdb-api',
+        });
+
+        expect(readyz.statusCode).toBe(200);
+        expect(readyz.json()).toMatchObject({
+            ok: true,
+            checks: {
+                appDatabase: {
+                    status: 'up',
+                },
+                metadataDatabase: {
+                    status: 'up',
+                },
+            },
+        });
+
+        expect(health.statusCode).toBe(200);
+        expect(health.json()).toMatchObject({
             ok: true,
             service: 'chartdb-api',
             persistence: {
-                app: 'sqlite',
-                schemaSync: 'sqlite',
+                app: {
+                    adapter: 'sqlite',
+                    status: 'up',
+                },
+                schemaSync: {
+                    adapter: 'sqlite',
+                    status: 'up',
+                },
             },
         });
 

@@ -31,6 +31,7 @@ const envSchema = z.object({
         .optional()
         .default(4010),
     CHARTDB_CORS_ORIGIN: z.string().optional().default('*'),
+    CHARTDB_TRUST_PROXY: z.string().trim().optional().default('false'),
     CHARTDB_DATA_DIR: z.string().optional(),
     CHARTDB_METADATA_DB_PATH: z.string().optional(),
     CHARTDB_APP_DB_PATH: z.string().optional(),
@@ -98,13 +99,16 @@ const envSchema = z.object({
 const resolveSecretKey = (
     parsedEnv: z.infer<typeof envSchema>,
     nodeEnv: 'development' | 'test' | 'production'
-): string => {
+): { value: string; warnings: string[] } => {
     const provided = parsedEnv.CHARTDB_SECRET_KEY?.trim();
     const isPlaceholder =
         !provided || provided === 'change-me-before-production';
 
     if (!isPlaceholder) {
-        return provided;
+        return {
+            value: provided,
+            warnings: [],
+        };
     }
 
     if (nodeEnv === 'production') {
@@ -113,10 +117,36 @@ const resolveSecretKey = (
         );
     }
 
-    console.warn(
-        '[config] CHARTDB_SECRET_KEY is not configured. Using an ephemeral development key.'
+    return {
+        value: randomBytes(32).toString('hex'),
+        warnings: [
+            'CHARTDB_SECRET_KEY is not configured. Using an ephemeral development key.',
+        ],
+    };
+};
+
+const parseTrustProxy = (value: string): boolean | number => {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (!normalizedValue || normalizedValue === 'false') {
+        return false;
+    }
+
+    if (normalizedValue === 'true') {
+        return true;
+    }
+
+    if (/^\d+$/.test(normalizedValue)) {
+        const hops = Number(normalizedValue);
+        if (hops === 0) {
+            return false;
+        }
+        return hops;
+    }
+
+    throw new Error(
+        'CHARTDB_TRUST_PROXY must be set to true, false, or a positive hop count.'
     );
-    return randomBytes(32).toString('hex');
 };
 
 export interface ServerEnv {
@@ -124,6 +154,7 @@ export interface ServerEnv {
     host: string;
     port: number;
     corsOrigin: string;
+    trustProxy?: boolean | number;
     logLevel:
         | 'fatal'
         | 'error'
@@ -155,6 +186,7 @@ export interface ServerEnv {
     encryptionKey: Buffer;
     defaultProjectName: string;
     defaultOwnerName: string;
+    runtimeWarnings?: string[];
 }
 
 export const parseServerEnv = (
@@ -241,13 +273,14 @@ export const parseServerEnv = (
         );
     }
 
-    const rawEncryptionKey = resolveSecretKey(parsedEnv, parsedEnv.NODE_ENV);
+    const resolvedSecretKey = resolveSecretKey(parsedEnv, parsedEnv.NODE_ENV);
 
     return {
         nodeEnv: parsedEnv.NODE_ENV,
         host: parsedEnv.CHARTDB_API_HOST,
         port: parsedEnv.CHARTDB_API_PORT,
         corsOrigin: parsedEnv.CHARTDB_CORS_ORIGIN,
+        trustProxy: parseTrustProxy(parsedEnv.CHARTDB_TRUST_PROXY),
         logLevel: parsedEnv.CHARTDB_LOG_LEVEL,
         authMode: parsedEnv.CHARTDB_AUTH_MODE,
         authEmail: parsedEnv.CHARTDB_AUTH_EMAIL?.toLowerCase() ?? null,
@@ -275,9 +308,12 @@ export const parseServerEnv = (
         appDbPath: parsedEnv.CHARTDB_APP_DB_PATH
             ? path.resolve(parsedEnv.CHARTDB_APP_DB_PATH)
             : path.join(dataDir, 'chartdb-app.sqlite'),
-        encryptionKey: createHash('sha256').update(rawEncryptionKey).digest(),
+        encryptionKey: createHash('sha256')
+            .update(resolvedSecretKey.value)
+            .digest(),
         defaultProjectName: parsedEnv.CHARTDB_DEFAULT_PROJECT_NAME,
         defaultOwnerName: parsedEnv.CHARTDB_DEFAULT_OWNER_NAME,
+        runtimeWarnings: resolvedSecretKey.warnings,
     };
 };
 

@@ -24,6 +24,9 @@ export const buildApp = (options?: {
     const env = options?.env ?? serverEnv;
     const app = Fastify({
         logger: buildLoggerOptions(env),
+        trustProxy: env.trustProxy ?? false,
+        requestIdHeader: 'x-request-id',
+        requestIdLogLabel: 'requestId',
     });
     const context = createAppContext(env, {
         metadataRepository: options?.metadataRepository,
@@ -38,11 +41,14 @@ export const buildApp = (options?: {
     app.register(cookie);
 
     app.addHook('onRequest', async (request, reply) => {
+        reply.header('X-Request-Id', request.id);
         request.auth = await context.authService.authenticateRequest(request);
         const requestPath = request.url.split('?')[0];
 
         const isPublicApiRoute =
             requestPath === '/api/health' ||
+            requestPath === '/api/livez' ||
+            requestPath === '/api/readyz' ||
             requestPath === '/api/auth/session' ||
             requestPath === '/api/auth/bootstrap' ||
             requestPath === '/api/auth/login' ||

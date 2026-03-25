@@ -47,6 +47,15 @@ export class MetadataRepository {
         this.db.close();
     }
 
+    ping(): boolean {
+        try {
+            this.db.prepare('SELECT 1').get();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     private initialize() {
         this.db.exec(`
             PRAGMA journal_mode = WAL;
