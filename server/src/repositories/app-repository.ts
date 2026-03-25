@@ -135,6 +135,15 @@ export class AppRepository {
         this.db.close();
     }
 
+    ping(): boolean {
+        try {
+            this.db.prepare('SELECT 1').get();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     transaction<T>(callback: () => T): T {
         return this.db.transaction(callback)();
     }

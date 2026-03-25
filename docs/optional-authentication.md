@@ -53,6 +53,7 @@ Related session settings:
 - If you use environment-assisted bootstrap, set a strong `CHARTDB_AUTH_PASSWORD`.
 - If you use an operator-managed interactive bootstrap code, make it long and random.
 - In production with authentication enabled, `CHARTDB_CORS_ORIGIN` must be an explicit origin, not `*`.
+- When running behind a reverse proxy, set `CHARTDB_TRUST_PROXY` only for trusted forwarded-header hops.
 - Bootstrap is locked after the first administrator is created. Removing that user later does not reopen public bootstrap automatically.
 - ChartDB stores only the hash of the interactive bootstrap setup code, not the plaintext value.
 - Session cookies are `HttpOnly` and `SameSite=Lax`.
@@ -106,6 +107,8 @@ CHARTDB_OIDC_REDIRECT_URL=https://chartdb.example.com/api/auth/oidc/callback
 
 - Public routes:
   - `GET /api/health`
+  - `GET /api/livez`
+  - `GET /api/readyz`
   - `GET /api/auth/session`
   - `POST /api/auth/bootstrap`
   - `POST /api/auth/login`

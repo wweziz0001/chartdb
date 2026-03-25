@@ -32,6 +32,7 @@ Optional:
 Shared auth/session settings:
 
 - `CHARTDB_CORS_ORIGIN`
+- `CHARTDB_TRUST_PROXY`
 - `CHARTDB_SECRET_KEY`
 - `CHARTDB_SESSION_TTL_HOURS`
 - `CHARTDB_SESSION_COOKIE_NAME`
@@ -93,6 +94,7 @@ Keycloak client settings to match:
 - Route `/api/auth/oidc/callback` through to the ChartDB backend.
 - Keep the externally visible callback URL exactly aligned with `CHARTDB_OIDC_REDIRECT_URL`.
 - If TLS terminates at the proxy, forward `X-Forwarded-Proto: https` and keep `CHARTDB_SESSION_COOKIE_SECURE=true` in production.
+- Set `CHARTDB_TRUST_PROXY=1` when traffic always passes through one trusted reverse-proxy hop that sanitizes forwarded headers.
 - Prefer serving the frontend and backend from the same external origin so session cookies and OIDC redirects stay simple.
 - If you deploy the frontend and backend on different origins, `CHARTDB_CORS_ORIGIN` must be the exact frontend origin.
 
