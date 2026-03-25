@@ -14,6 +14,7 @@ import { EventEmitter } from 'ahooks/lib/useEventEmitter';
 import type { Area } from '@/lib/domain/area';
 import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { Note } from '@/lib/domain/note';
+import type { DiagramSessionState } from '../storage-context/storage-context';
 
 export type ChartDBEventType =
     | 'add_tables'
@@ -78,6 +79,7 @@ export interface ChartDBContext {
     customTypes: DBCustomType[];
     notes: Note[];
     currentDiagram: Diagram;
+    diagramSession?: DiagramSessionState;
     events: EventEmitter<ChartDBEvent>;
     readonly?: boolean;
 
@@ -350,6 +352,7 @@ export const chartDBContext = createContext<ChartDBContext>({
         createdAt: new Date(),
         updatedAt: new Date(),
     },
+    diagramSession: undefined,
     events: new EventEmitter(),
 
     // General operations

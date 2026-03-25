@@ -2,6 +2,8 @@ import Database from 'better-sqlite3';
 import {
     diagramDocumentSchema,
     diagramStatusSchema,
+    diagramSessionModeSchema,
+    diagramSessionStatusSchema,
     diagramVisibilitySchema,
     ownershipScopeSchema,
     projectStatusSchema,
@@ -95,8 +97,28 @@ export interface DiagramRecord extends SharingRecord {
     visibility: 'private' | 'workspace' | 'public';
     status: 'draft' | 'active' | 'archived';
     document: DiagramDocument;
+    documentVersion?: number;
+    documentUpdatedAt?: string;
+    lastSavedSessionId?: string | null;
+    lastSavedByUserId?: string | null;
     createdAt: string;
     updatedAt: string;
+}
+
+export interface DiagramSessionRecord {
+    id: string;
+    diagramId: string;
+    ownerUserId: string | null;
+    mode: 'view' | 'edit';
+    status: 'active' | 'idle' | 'stale' | 'closed';
+    clientId: string | null;
+    userAgent: string | null;
+    baseVersion: number;
+    lastSeenDocumentVersion: number;
+    createdAt: string;
+    updatedAt: string;
+    lastHeartbeatAt: string;
+    closedAt: string | null;
 }
 
 const parseJson = <T>(value: string): T => JSON.parse(value) as T;
@@ -312,6 +334,48 @@ export class AppRepository {
 
                     CREATE INDEX IF NOT EXISTS idx_app_diagrams_share_token
                     ON app_diagrams(share_token);
+                `,
+            },
+            {
+                version: 7,
+                sql: `
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN document_version INTEGER NOT NULL DEFAULT 1;
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN document_updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN last_saved_session_id TEXT;
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN last_saved_by_user_id TEXT
+                    REFERENCES app_users(id) ON DELETE SET NULL;
+
+                    UPDATE app_diagrams
+                    SET document_updated_at = updated_at
+                    WHERE document_updated_at = '1970-01-01T00:00:00.000Z';
+
+                    CREATE TABLE IF NOT EXISTS app_diagram_sessions (
+                        id TEXT PRIMARY KEY,
+                        diagram_id TEXT NOT NULL,
+                        owner_user_id TEXT,
+                        mode TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        client_id TEXT,
+                        user_agent TEXT,
+                        base_version INTEGER NOT NULL,
+                        last_seen_document_version INTEGER NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        last_heartbeat_at TEXT NOT NULL,
+                        closed_at TEXT,
+                        FOREIGN KEY(diagram_id) REFERENCES app_diagrams(id) ON DELETE CASCADE,
+                        FOREIGN KEY(owner_user_id) REFERENCES app_users(id) ON DELETE SET NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_app_diagram_sessions_diagram_status
+                    ON app_diagram_sessions(diagram_id, status, updated_at DESC);
                 `,
             },
         ] as const;
@@ -786,7 +850,9 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
                     sharing_scope, sharing_access, share_token,
-                    share_updated_at, document_json, created_at, updated_at
+                    share_updated_at, document_json, document_version,
+                    document_updated_at, last_saved_session_id,
+                    last_saved_by_user_id, created_at, updated_at
                 FROM app_diagrams
                 ORDER BY updated_at DESC, created_at DESC
                 `
@@ -804,7 +870,9 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
                     sharing_scope, sharing_access, share_token,
-                    share_updated_at, document_json, created_at, updated_at
+                    share_updated_at, document_json, document_version,
+                    document_updated_at, last_saved_session_id,
+                    last_saved_by_user_id, created_at, updated_at
                 FROM app_diagrams
                 WHERE project_id = ?
                 ORDER BY updated_at DESC, created_at DESC
@@ -823,7 +891,9 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
                     sharing_scope, sharing_access, share_token,
-                    share_updated_at, document_json, created_at, updated_at
+                    share_updated_at, document_json, document_version,
+                    document_updated_at, last_saved_session_id,
+                    last_saved_by_user_id, created_at, updated_at
                 FROM app_diagrams
                 WHERE id = ?
                 `
@@ -834,6 +904,12 @@ export class AppRepository {
     }
 
     putDiagram(diagram: DiagramRecord) {
+        const documentVersion = diagram.documentVersion ?? 1;
+        const documentUpdatedAt =
+            diagram.documentUpdatedAt ?? diagram.updatedAt;
+        const lastSavedSessionId = diagram.lastSavedSessionId ?? null;
+        const lastSavedByUserId = diagram.lastSavedByUserId ?? null;
+
         this.db
             .prepare(
                 `
@@ -841,9 +917,11 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description, database_type,
                     database_edition, visibility, status, sharing_scope,
                     sharing_access, share_token, share_updated_at,
-                    document_json, created_at, updated_at
+                    document_json, document_version, document_updated_at,
+                    last_saved_session_id, last_saved_by_user_id,
+                    created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     project_id = excluded.project_id,
                     owner_user_id = excluded.owner_user_id,
@@ -858,6 +936,10 @@ export class AppRepository {
                     share_token = excluded.share_token,
                     share_updated_at = excluded.share_updated_at,
                     document_json = excluded.document_json,
+                    document_version = excluded.document_version,
+                    document_updated_at = excluded.document_updated_at,
+                    last_saved_session_id = excluded.last_saved_session_id,
+                    last_saved_by_user_id = excluded.last_saved_by_user_id,
                     updated_at = excluded.updated_at
                 `
             )
@@ -876,6 +958,10 @@ export class AppRepository {
                 diagram.shareToken,
                 diagram.shareUpdatedAt,
                 JSON.stringify(diagram.document),
+                documentVersion,
+                documentUpdatedAt,
+                lastSavedSessionId,
+                lastSavedByUserId,
                 diagram.createdAt,
                 diagram.updatedAt
             );
@@ -883,6 +969,87 @@ export class AppRepository {
 
     deleteDiagram(id: string) {
         this.db.prepare(`DELETE FROM app_diagrams WHERE id = ?`).run(id);
+    }
+
+    listDiagramSessions(diagramId: string): DiagramSessionRecord[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT
+                    id, diagram_id, owner_user_id, mode, status,
+                    client_id, user_agent, base_version,
+                    last_seen_document_version, created_at, updated_at,
+                    last_heartbeat_at, closed_at
+                FROM app_diagram_sessions
+                WHERE diagram_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                `
+            )
+            .all(diagramId) as Array<Record<string, unknown>>;
+
+        return rows.map((row) => this.mapDiagramSession(row));
+    }
+
+    getDiagramSession(
+        diagramId: string,
+        sessionId: string
+    ): DiagramSessionRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT
+                    id, diagram_id, owner_user_id, mode, status,
+                    client_id, user_agent, base_version,
+                    last_seen_document_version, created_at, updated_at,
+                    last_heartbeat_at, closed_at
+                FROM app_diagram_sessions
+                WHERE diagram_id = ? AND id = ?
+                `
+            )
+            .get(diagramId, sessionId) as Record<string, unknown> | undefined;
+
+        return row ? this.mapDiagramSession(row) : undefined;
+    }
+
+    putDiagramSession(session: DiagramSessionRecord) {
+        this.db
+            .prepare(
+                `
+                INSERT INTO app_diagram_sessions (
+                    id, diagram_id, owner_user_id, mode, status, client_id,
+                    user_agent, base_version, last_seen_document_version,
+                    created_at, updated_at, last_heartbeat_at, closed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    diagram_id = excluded.diagram_id,
+                    owner_user_id = excluded.owner_user_id,
+                    mode = excluded.mode,
+                    status = excluded.status,
+                    client_id = excluded.client_id,
+                    user_agent = excluded.user_agent,
+                    base_version = excluded.base_version,
+                    last_seen_document_version = excluded.last_seen_document_version,
+                    updated_at = excluded.updated_at,
+                    last_heartbeat_at = excluded.last_heartbeat_at,
+                    closed_at = excluded.closed_at
+                `
+            )
+            .run(
+                session.id,
+                session.diagramId,
+                session.ownerUserId,
+                session.mode,
+                session.status,
+                session.clientId,
+                session.userAgent,
+                session.baseVersion,
+                session.lastSeenDocumentVersion,
+                session.createdAt,
+                session.updatedAt,
+                session.lastHeartbeatAt,
+                session.closedAt
+            );
     }
 
     private mapUser(row: Record<string, unknown>): AppUserRecord {
@@ -923,6 +1090,26 @@ export class AppRepository {
                 : null,
             ipAddress: row.ip_address ? String(row.ip_address) : null,
             userAgent: row.user_agent ? String(row.user_agent) : null,
+        };
+    }
+
+    private mapDiagramSession(
+        row: Record<string, unknown>
+    ): DiagramSessionRecord {
+        return {
+            id: String(row.id),
+            diagramId: String(row.diagram_id),
+            ownerUserId: row.owner_user_id ? String(row.owner_user_id) : null,
+            mode: diagramSessionModeSchema.parse(row.mode),
+            status: diagramSessionStatusSchema.parse(row.status),
+            clientId: row.client_id ? String(row.client_id) : null,
+            userAgent: row.user_agent ? String(row.user_agent) : null,
+            baseVersion: Number(row.base_version),
+            lastSeenDocumentVersion: Number(row.last_seen_document_version),
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
+            lastHeartbeatAt: String(row.last_heartbeat_at),
+            closedAt: row.closed_at ? String(row.closed_at) : null,
         };
     }
 
@@ -995,6 +1182,16 @@ export class AppRepository {
             document: diagramDocumentSchema.parse(
                 parseJson<DiagramDocument>(String(row.document_json))
             ),
+            documentVersion: Number(row.document_version ?? 1),
+            documentUpdatedAt: String(
+                row.document_updated_at ?? row.updated_at
+            ),
+            lastSavedSessionId: row.last_saved_session_id
+                ? String(row.last_saved_session_id)
+                : null,
+            lastSavedByUserId: row.last_saved_by_user_id
+                ? String(row.last_saved_by_user_id)
+                : null,
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
         };

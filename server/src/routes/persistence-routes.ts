@@ -139,6 +139,34 @@ export const registerPersistenceRoutes = (
         );
     });
 
+    app.post('/api/diagrams/:id/sessions', async (request) => {
+        const params = request.params as { id: string };
+        return context.persistenceService.createDiagramSession(
+            params.id,
+            request.body,
+            request.auth.user
+        );
+    });
+
+    app.get('/api/diagrams/:id/sessions/:sessionId', async (request) => {
+        const params = request.params as { id: string; sessionId: string };
+        return context.persistenceService.getDiagramSession(
+            params.id,
+            params.sessionId,
+            request.auth.user
+        );
+    });
+
+    app.patch('/api/diagrams/:id/sessions/:sessionId', async (request) => {
+        const params = request.params as { id: string; sessionId: string };
+        return context.persistenceService.updateDiagramSession(
+            params.id,
+            params.sessionId,
+            request.body,
+            request.auth.user
+        );
+    });
+
     app.put('/api/diagrams/:id', async (request) => {
         const params = request.params as { id: string };
         return {

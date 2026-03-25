@@ -68,6 +68,7 @@ export interface PersistedDiagramSummary {
     sharingAccess: SharingAccess;
     access: ResourceAccess;
     tableCount: number;
+    collaboration?: PersistedDiagramCollaborationState;
     createdAt: string;
     updatedAt: string;
 }
@@ -85,9 +86,60 @@ export interface PersistedDiagramRecord {
     sharingScope: SharingScope;
     sharingAccess: SharingAccess;
     access: ResourceAccess;
+    collaboration: PersistedDiagramCollaborationState;
     createdAt: string;
     updatedAt: string;
     diagram: DiagramDto;
+}
+
+export interface PersistedDiagramDocumentState {
+    version: number;
+    updatedAt: string;
+    lastSavedSessionId: string | null;
+    lastSavedByUserId: string | null;
+}
+
+export interface PersistedDiagramRealtimeCapability {
+    strategy: 'optimistic-http' | 'websocket-ready';
+    liveSyncEnabled: boolean;
+    websocketEndpoint: string | null;
+    websocketProtocol: string | null;
+    sessionEndpoint: string;
+}
+
+export interface PersistedDiagramCollaborationState {
+    document: PersistedDiagramDocumentState;
+    realtime: PersistedDiagramRealtimeCapability;
+    activeSessionCount: number;
+}
+
+export interface PersistedDiagramSessionTransport {
+    syncEndpoint: string;
+    heartbeatEndpoint: string;
+    websocketEndpoint: string | null;
+    websocketProtocol: string | null;
+}
+
+export interface PersistedDiagramEditSession {
+    id: string;
+    diagramId: string;
+    ownerUserId: string | null;
+    mode: 'view' | 'edit';
+    status: 'active' | 'idle' | 'stale' | 'closed';
+    clientId: string | null;
+    userAgent: string | null;
+    baseVersion: number;
+    lastSeenDocumentVersion: number;
+    createdAt: string;
+    updatedAt: string;
+    lastHeartbeatAt: string;
+    closedAt: string | null;
+    transport: PersistedDiagramSessionTransport;
+}
+
+export interface PersistedDiagramSessionResponse {
+    session: PersistedDiagramEditSession;
+    collaboration: PersistedDiagramCollaborationState;
 }
 
 export interface PersistedSharingSettings {
@@ -122,12 +174,26 @@ export interface PersistedDiagramUpdateInput {
     description?: string | null;
     visibility?: 'private' | 'workspace' | 'public';
     status?: 'draft' | 'active' | 'archived';
+    sessionId?: string;
+    baseVersion?: number;
 }
 
 export interface PersistedSharingUpdateInput {
     scope: SharingScope;
     access: SharingAccess;
     rotateLinkToken?: boolean;
+}
+
+export interface PersistedCreateDiagramSessionInput {
+    mode?: 'view' | 'edit';
+    clientId?: string;
+    userAgent?: string;
+}
+
+export interface PersistedUpdateDiagramSessionInput {
+    status?: 'active' | 'idle' | 'stale' | 'closed';
+    lastSeenDocumentVersion?: number;
+    close?: boolean;
 }
 
 export interface BootstrapResponse {
@@ -300,6 +366,8 @@ export const persistenceClient = {
             visibility?: 'private' | 'workspace' | 'public';
             status?: 'draft' | 'active' | 'archived';
             description?: string;
+            sessionId?: string;
+            baseVersion?: number;
             diagram: DiagramDto;
         }
     ) =>
@@ -307,6 +375,33 @@ export const persistenceClient = {
             `/api/diagrams/${diagramId}`,
             {
                 method: 'PUT',
+                body: JSON.stringify(payload),
+            }
+        ),
+    createDiagramSession: async (
+        diagramId: string,
+        payload: PersistedCreateDiagramSessionInput
+    ) =>
+        requestJson<PersistedDiagramSessionResponse>(
+            `/api/diagrams/${diagramId}/sessions`,
+            {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            }
+        ),
+    getDiagramSession: async (diagramId: string, sessionId: string) =>
+        requestJson<PersistedDiagramSessionResponse>(
+            `/api/diagrams/${diagramId}/sessions/${sessionId}`
+        ),
+    updateDiagramSession: async (
+        diagramId: string,
+        sessionId: string,
+        payload: PersistedUpdateDiagramSessionInput
+    ) =>
+        requestJson<PersistedDiagramSessionResponse>(
+            `/api/diagrams/${diagramId}/sessions/${sessionId}`,
+            {
+                method: 'PATCH',
                 body: JSON.stringify(payload),
             }
         ),
