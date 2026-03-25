@@ -139,11 +139,18 @@ See [Optional Authentication](./docs/optional-authentication.md) for self-hosted
 See [Scoped Sharing](./docs/scoped-sharing.md) for private, authenticated, and link-based sharing rules.
 See [Real-Time Collaboration](./docs/realtime-collaboration.md) for shared editing architecture, setup, and current limitations.
 See [Admin Dashboard](./docs/admin-dashboard.md) for the basic self-hosted admin surface.
+See [Self-Hosting ChartDB](./docs/self-hosting.md) for Docker, reverse proxy, health check, and deployment guidance.
 
 ### Full Local Stack With Docker
 
+Copy the example environment file first and set at least `CHARTDB_SECRET_KEY` and `CHARTDB_POSTGRES_PASSWORD`:
+
 ```bash
-docker compose up --build
+cp .env.example .env
+```
+
+```bash
+docker compose up --build -d
 ```
 
 This starts:
@@ -151,6 +158,15 @@ This starts:
 - `web` on `http://localhost:8080`
 - `api` on `http://localhost:4010`
 - `postgres` on `localhost:5432`
+
+Useful operational endpoints:
+
+- `GET /healthz`
+- `GET /api/livez`
+- `GET /api/readyz`
+- `GET /api/health`
+
+See [Self-Hosting ChartDB](./docs/self-hosting.md) for reverse-proxy notes, deployment basics, and environment variable details.
 
 ### Optional Authentication
 
@@ -211,6 +227,7 @@ Key variables:
 - `VITE_API_BASE_URL`: optional frontend API base override
 - `CHARTDB_API_HOST`: backend bind host
 - `CHARTDB_API_PORT`: backend port
+- `CHARTDB_TRUST_PROXY`: `false`, `true`, or a positive proxy-hop count such as `1`
 - `CHARTDB_SECRET_KEY`: encryption key for stored connection secrets
 - `CHARTDB_DATA_DIR`: default directory for backend SQLite files
 - `CHARTDB_APP_DB_PATH`: optional override for the self-hosted app persistence database
@@ -244,6 +261,14 @@ npm install
 npm run build
 ```
 
+### Test
+
+```bash
+npm run lint
+npm run typecheck
+npm run test:ci
+```
+
 ### Run Only The Backend
 
 ```bash
@@ -253,6 +278,8 @@ npm run dev -w @chartdb/server
 Useful backend endpoints:
 
 - `GET /api/health`
+- `GET /api/livez`
+- `GET /api/readyz`
 - `GET /api/auth/session`
 - `POST /api/auth/bootstrap`
 - `POST /api/auth/login`
@@ -308,6 +335,7 @@ npm run dev:web
 
 See [docs/schema-sync-architecture.md](./docs/schema-sync-architecture.md) for the detailed design.
 See [docs/backend-persistence-foundation.md](./docs/backend-persistence-foundation.md) for the self-hosted backend/persistence foundation.
+See [docs/self-hosting.md](./docs/self-hosting.md) for self-hosted runtime, Docker, reverse proxy, and deployment guidance.
 See [docs/project-backup-format.md](./docs/project-backup-format.md) for the saved project backup and restore workflow.
 See [docs/optional-authentication.md](./docs/optional-authentication.md) for optional auth modes and [docs/oidc-authentication.md](./docs/oidc-authentication.md) for OIDC and Keycloak setup.
 See [docs/scoped-sharing.md](./docs/scoped-sharing.md) for sharing modes, shared routes, and security behavior.
@@ -340,8 +368,10 @@ See [docs/admin-dashboard.md](./docs/admin-dashboard.md) for the admin overview 
 - `npm run typecheck`
 - `npm run test:ci`
 - `npm run build`
+- `docker compose config`
+- `docker compose up -d`
 
-The CI workflow runs these checks on pull requests.
+The CI workflow runs these checks and a self-hosted container smoke test on pull requests and supported branch pushes.
 
 ## 💚 Community & Support
 
