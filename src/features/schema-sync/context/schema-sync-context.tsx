@@ -48,11 +48,13 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
         try {
             const response = await schemaSyncClient.getConnections();
             setConnections(response.items);
-            setSelectedConnectionIdState(
-                (current) =>
-                    response.items.find((connection) => connection.id === current)
-                        ?.id ?? response.items[0]?.id
-            );
+            setSelectedConnectionIdState((current) => {
+                return (
+                    response.items.find(
+                        (connection) => connection.id === current
+                    )?.id ?? response.items[0]?.id
+                );
+            });
         } finally {
             setConnectionsLoading(false);
         }
@@ -272,8 +274,7 @@ export const SchemaSyncProvider: React.FC<React.PropsWithChildren> = ({
                           lastImportedAt: nextImportedAt,
                           lastPreviewPlanId: null,
                           lastAuditId: result.auditId,
-                          lastPostApplySnapshotId:
-                              result.postApplySnapshotId,
+                          lastPostApplySnapshotId: result.postApplySnapshotId,
                       }
                     : {
                           lastAuditId: result.auditId,
