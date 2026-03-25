@@ -2095,6 +2095,10 @@ export const ChartDBProvider: React.FC<
                 ...FULL_DIAGRAM_LOAD_OPTIONS,
             });
             const savedDiagram = await storageDB.getSavedDiagram(diagramId);
+            const sessionMode =
+                readonlyProp || hasDiff || savedDiagram?.access === 'view'
+                    ? 'view'
+                    : 'edit';
 
             if (diagram) {
                 setDiagramAccess(savedDiagram?.access);
@@ -2102,15 +2106,37 @@ export const ChartDBProvider: React.FC<
                 try {
                     const nextSession = await storageDB.activateDiagramSession({
                         diagramId,
-                        mode: readonly ? 'view' : 'edit',
+                        mode: sessionMode,
                     });
                     setDiagramSession(nextSession);
                 } catch (error) {
+                    if (sessionMode === 'edit') {
+                        try {
+                            const fallbackSession =
+                                await storageDB.activateDiagramSession({
+                                    diagramId,
+                                    mode: 'view',
+                                });
+                            setDiagramAccess('view');
+                            setDiagramSession(fallbackSession);
+                            return diagram;
+                        } catch (fallbackError) {
+                            console.warn(
+                                'Failed to activate diagram view collaboration session.',
+                                {
+                                    diagramId,
+                                    error: fallbackError,
+                                }
+                            );
+                        }
+                    }
+
                     console.warn(
                         'Failed to activate diagram collaboration session.',
                         {
                             diagramId,
                             error,
+                            modeTried: sessionMode,
                         }
                     );
                     setDiagramSession(undefined);
@@ -2119,7 +2145,7 @@ export const ChartDBProvider: React.FC<
 
             return diagram;
         },
-        [diagramSession, loadDiagramFromData, readonly, storageDB]
+        [diagramSession, hasDiff, loadDiagramFromData, readonlyProp, storageDB]
     );
 
     const diagramSessionId = diagramSession?.session.id;
