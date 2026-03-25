@@ -1,16 +1,19 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: chartdb
-      POSTGRES_USER: chartdb
-      POSTGRES_PASSWORD: chartdb
+      POSTGRES_DB: ${CHARTDB_POSTGRES_DB:-chartdb}
+      POSTGRES_USER: ${CHARTDB_POSTGRES_USER:-chartdb}
+      POSTGRES_PASSWORD: ${CHARTDB_POSTGRES_PASSWORD:?set CHARTDB_POSTGRES_PASSWORD in .env}
     ports:
-      - '5432:5432'
+      - '${CHARTDB_POSTGRES_PORT:-5432}:5432'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U chartdb -d chartdb']
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${CHARTDB_POSTGRES_USER:-chartdb} -d ${CHARTDB_POSTGRES_DB:-chartdb}',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -18,42 +21,80 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   api:
+    init: true
+    restart: unless-stopped
     build:
       context: .
       dockerfile: server/Dockerfile
     environment:
+      NODE_ENV: ${NODE_ENV:-production}
       CHARTDB_API_PORT: 4010
       CHARTDB_API_HOST: 0.0.0.0
-      CHARTDB_SECRET_KEY: change-me-before-production
+      CHARTDB_SECRET_KEY: ${CHARTDB_SECRET_KEY:?set CHARTDB_SECRET_KEY in .env}
       CHARTDB_DATA_DIR: /app/data
-      CHARTDB_CORS_ORIGIN: '*'
+      CHARTDB_CORS_ORIGIN: ${CHARTDB_CORS_ORIGIN:-http://localhost:8080}
+      CHARTDB_LOG_LEVEL: ${CHARTDB_LOG_LEVEL:-info}
+      CHARTDB_TRUST_PROXY: ${CHARTDB_TRUST_PROXY:-false}
+      CHARTDB_AUTH_MODE: ${CHARTDB_AUTH_MODE:-disabled}
+      CHARTDB_AUTH_EMAIL: ${CHARTDB_AUTH_EMAIL:-}
+      CHARTDB_AUTH_PASSWORD: ${CHARTDB_AUTH_PASSWORD:-}
+      CHARTDB_AUTH_DISPLAY_NAME: ${CHARTDB_AUTH_DISPLAY_NAME:-ChartDB Owner}
+      CHARTDB_BOOTSTRAP_SETUP_CODE: ${CHARTDB_BOOTSTRAP_SETUP_CODE:-}
+      CHARTDB_BOOTSTRAP_ADMIN_EMAIL: ${CHARTDB_BOOTSTRAP_ADMIN_EMAIL:-}
+      CHARTDB_SESSION_COOKIE_SECURE: ${CHARTDB_SESSION_COOKIE_SECURE:-}
+      CHARTDB_OIDC_ISSUER: ${CHARTDB_OIDC_ISSUER:-}
+      CHARTDB_OIDC_CLIENT_ID: ${CHARTDB_OIDC_CLIENT_ID:-}
+      CHARTDB_OIDC_CLIENT_SECRET: ${CHARTDB_OIDC_CLIENT_SECRET:-}
+      CHARTDB_OIDC_REDIRECT_URL: ${CHARTDB_OIDC_REDIRECT_URL:-}
+      CHARTDB_OIDC_LOGOUT_URL: ${CHARTDB_OIDC_LOGOUT_URL:-}
+      CHARTDB_OIDC_SCOPES: ${CHARTDB_OIDC_SCOPES:-openid profile email}
+      CHARTDB_DEFAULT_PROJECT_NAME: ${CHARTDB_DEFAULT_PROJECT_NAME:-My Diagrams}
+      CHARTDB_DEFAULT_OWNER_NAME: ${CHARTDB_DEFAULT_OWNER_NAME:-Local Owner}
     ports:
-      - '4010:4010'
+      - '${CHARTDB_API_PORT:-4010}:4010'
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - chartdb-api-data:/app/data
     healthcheck:
-      test: ['CMD-SHELL', 'node -e "fetch(`http://127.0.0.1:4010/api/health`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(`http://127.0.0.1:4010/api/readyz`).then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
 
   web:
+    init: true
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: ''
     environment:
-      API_UPSTREAM: api:4010
-      API_BASE_URL: ''
+      API_UPSTREAM: ${API_UPSTREAM:-api:4010}
+      API_BASE_URL: ${VITE_API_BASE_URL:-}
+      OPENAI_API_KEY: ${VITE_OPENAI_API_KEY:-}
+      OPENAI_API_ENDPOINT: ${VITE_OPENAI_API_ENDPOINT:-}
+      LLM_MODEL_NAME: ${VITE_LLM_MODEL_NAME:-}
+      HIDE_CHARTDB_CLOUD: ${VITE_HIDE_CHARTDB_CLOUD:-true}
+      DISABLE_ANALYTICS: ${VITE_DISABLE_ANALYTICS:-true}
     ports:
-      - '8080:80'
+      - '${CHARTDB_WEB_PORT:-8080}:80'
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --quiet --tries=1 --spider http://127.0.0.1/healthz',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:

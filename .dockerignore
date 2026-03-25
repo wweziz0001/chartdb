@@ -13,6 +13,8 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+.chartdb-data
+server/.chartdb-data
 
 # Ignore git files
 .git

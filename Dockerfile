@@ -1,11 +1,4 @@
-FROM node:24-alpine AS builder
-
-ARG VITE_OPENAI_API_KEY
-ARG VITE_OPENAI_API_ENDPOINT
-ARG VITE_LLM_MODEL_NAME
-ARG VITE_API_BASE_URL
-ARG VITE_HIDE_CHARTDB_CLOUD
-ARG VITE_DISABLE_ANALYTICS
+FROM node:24-bookworm-slim AS builder
 
 WORKDIR /usr/src/app
 
@@ -17,13 +10,6 @@ RUN npm ci
 
 COPY . .
 
-RUN echo "VITE_OPENAI_API_KEY=${VITE_OPENAI_API_KEY}" > .env && \
-    echo "VITE_OPENAI_API_ENDPOINT=${VITE_OPENAI_API_ENDPOINT}" >> .env && \
-    echo "VITE_LLM_MODEL_NAME=${VITE_LLM_MODEL_NAME}" >> .env && \
-    echo "VITE_API_BASE_URL=${VITE_API_BASE_URL}" >> .env && \
-    echo "VITE_HIDE_CHARTDB_CLOUD=${VITE_HIDE_CHARTDB_CLOUD}" >> .env && \
-    echo "VITE_DISABLE_ANALYTICS=${VITE_DISABLE_ANALYTICS}" >> .env
-
 RUN npm run build:web
 
 FROM nginx:stable-alpine AS production
@@ -34,5 +20,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget --quiet --tries=1 --spider http://127.0.0.1/healthz || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
