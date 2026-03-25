@@ -21,6 +21,15 @@ export interface SharingRecord {
     sharingAccess: 'view' | 'edit';
     shareToken: string | null;
     shareUpdatedAt: string | null;
+    shareExpiresAt: string | null;
+}
+
+export interface SharingUserAccessRecord {
+    resourceId: string;
+    userId: string;
+    access: 'view' | 'edit';
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface AppUserRecord {
@@ -387,6 +396,44 @@ export class AppRepository {
                     ON app_diagram_sessions(diagram_id, status, updated_at DESC);
                 `,
             },
+            {
+                version: 8,
+                sql: `
+                    ALTER TABLE app_projects
+                    ADD COLUMN share_expires_at TEXT;
+
+                    ALTER TABLE app_diagrams
+                    ADD COLUMN share_expires_at TEXT;
+
+                    CREATE TABLE IF NOT EXISTS app_project_user_access (
+                        project_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        access TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (project_id, user_id),
+                        FOREIGN KEY(project_id) REFERENCES app_projects(id) ON DELETE CASCADE,
+                        FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
+                    );
+
+                    CREATE TABLE IF NOT EXISTS app_diagram_user_access (
+                        diagram_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        access TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (diagram_id, user_id),
+                        FOREIGN KEY(diagram_id) REFERENCES app_diagrams(id) ON DELETE CASCADE,
+                        FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_app_project_user_access_user
+                    ON app_project_user_access(user_id, updated_at DESC);
+
+                    CREATE INDEX IF NOT EXISTS idx_app_diagram_user_access_user
+                    ON app_diagram_user_access(user_id, updated_at DESC);
+                `,
+            },
         ] as const;
 
         for (const migration of migrations) {
@@ -550,6 +597,56 @@ export class AppRepository {
             .all() as Array<Record<string, unknown>>;
 
         return rows.map((row) => this.mapUserAuth(row));
+    }
+
+    searchUsers(query?: string, limit = 20): AppUserRecord[] {
+        const normalizedQuery = query?.trim().toLowerCase() ?? '';
+
+        const rows =
+            normalizedQuery.length === 0
+                ? (this.db
+                      .prepare(
+                          `
+                          SELECT id, email, display_name, auth_provider, status,
+                              role, ownership_scope, created_at, updated_at
+                          FROM app_users
+                          WHERE status != 'disabled'
+                          ORDER BY display_name ASC, created_at ASC
+                          LIMIT ?
+                          `
+                      )
+                      .all(limit) as Array<Record<string, unknown>>)
+                : (this.db
+                      .prepare(
+                          `
+                          SELECT id, email, display_name, auth_provider, status,
+                              role, ownership_scope, created_at, updated_at
+                          FROM app_users
+                          WHERE status != 'disabled'
+                            AND (
+                                lower(display_name) LIKE ?
+                                OR lower(coalesce(email, '')) LIKE ?
+                            )
+                          ORDER BY
+                              CASE
+                                  WHEN lower(display_name) = ? THEN 0
+                                  WHEN lower(coalesce(email, '')) = ? THEN 1
+                                  ELSE 2
+                              END ASC,
+                              display_name ASC,
+                              created_at ASC
+                          LIMIT ?
+                          `
+                      )
+                      .all(
+                          `%${normalizedQuery}%`,
+                          `%${normalizedQuery}%`,
+                          normalizedQuery,
+                          normalizedQuery,
+                          limit
+                      ) as Array<Record<string, unknown>>);
+
+        return rows.map((row) => this.mapUser(row));
     }
 
     countActiveAdmins(): number {
@@ -779,7 +876,8 @@ export class AppRepository {
                 SELECT
                     id, name, description, collection_id, owner_user_id,
                     visibility, status, sharing_scope, sharing_access,
-                    share_token, share_updated_at, created_at, updated_at
+                    share_token, share_updated_at, share_expires_at,
+                    created_at, updated_at
                 FROM app_projects
                 ORDER BY updated_at DESC, created_at DESC
                 `
@@ -796,7 +894,8 @@ export class AppRepository {
                 SELECT
                     id, name, description, collection_id, owner_user_id,
                     visibility, status, sharing_scope, sharing_access,
-                    share_token, share_updated_at, created_at, updated_at
+                    share_token, share_updated_at, share_expires_at,
+                    created_at, updated_at
                 FROM app_projects
                 WHERE id = ?
                 `
@@ -813,9 +912,10 @@ export class AppRepository {
                 INSERT INTO app_projects (
                     id, name, description, collection_id, owner_user_id,
                     visibility, status, sharing_scope, sharing_access,
-                    share_token, share_updated_at, created_at, updated_at
+                    share_token, share_updated_at, share_expires_at,
+                    created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -827,6 +927,7 @@ export class AppRepository {
                     sharing_access = excluded.sharing_access,
                     share_token = excluded.share_token,
                     share_updated_at = excluded.share_updated_at,
+                    share_expires_at = excluded.share_expires_at,
                     updated_at = excluded.updated_at
                 `
             )
@@ -842,6 +943,7 @@ export class AppRepository {
                 project.sharingAccess,
                 project.shareToken,
                 project.shareUpdatedAt,
+                project.shareExpiresAt,
                 project.createdAt,
                 project.updatedAt
             );
@@ -859,7 +961,8 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
                     sharing_scope, sharing_access, share_token,
-                    share_updated_at, document_json, document_version,
+                    share_updated_at, share_expires_at, document_json,
+                    document_version,
                     document_updated_at, last_saved_session_id,
                     last_saved_by_user_id, created_at, updated_at
                 FROM app_diagrams
@@ -879,7 +982,8 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
                     sharing_scope, sharing_access, share_token,
-                    share_updated_at, document_json, document_version,
+                    share_updated_at, share_expires_at, document_json,
+                    document_version,
                     document_updated_at, last_saved_session_id,
                     last_saved_by_user_id, created_at, updated_at
                 FROM app_diagrams
@@ -900,7 +1004,8 @@ export class AppRepository {
                     id, project_id, owner_user_id, name, description,
                     database_type, database_edition, visibility, status,
                     sharing_scope, sharing_access, share_token,
-                    share_updated_at, document_json, document_version,
+                    share_updated_at, share_expires_at, document_json,
+                    document_version,
                     document_updated_at, last_saved_session_id,
                     last_saved_by_user_id, created_at, updated_at
                 FROM app_diagrams
@@ -925,12 +1030,12 @@ export class AppRepository {
                 INSERT INTO app_diagrams (
                     id, project_id, owner_user_id, name, description, database_type,
                     database_edition, visibility, status, sharing_scope,
-                    sharing_access, share_token, share_updated_at,
+                    sharing_access, share_token, share_updated_at, share_expires_at,
                     document_json, document_version, document_updated_at,
                     last_saved_session_id, last_saved_by_user_id,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     project_id = excluded.project_id,
                     owner_user_id = excluded.owner_user_id,
@@ -944,6 +1049,7 @@ export class AppRepository {
                     sharing_access = excluded.sharing_access,
                     share_token = excluded.share_token,
                     share_updated_at = excluded.share_updated_at,
+                    share_expires_at = excluded.share_expires_at,
                     document_json = excluded.document_json,
                     document_version = excluded.document_version,
                     document_updated_at = excluded.document_updated_at,
@@ -966,6 +1072,7 @@ export class AppRepository {
                 diagram.sharingAccess,
                 diagram.shareToken,
                 diagram.shareUpdatedAt,
+                diagram.shareExpiresAt,
                 JSON.stringify(diagram.document),
                 documentVersion,
                 documentUpdatedAt,
@@ -978,6 +1085,136 @@ export class AppRepository {
 
     deleteDiagram(id: string) {
         this.db.prepare(`DELETE FROM app_diagrams WHERE id = ?`).run(id);
+    }
+
+    listProjectUserAccess(projectId: string): SharingUserAccessRecord[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT project_id, user_id, access, created_at, updated_at
+                FROM app_project_user_access
+                WHERE project_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                `
+            )
+            .all(projectId) as Array<Record<string, unknown>>;
+
+        return rows.map((row) => this.mapProjectUserAccess(row));
+    }
+
+    getProjectUserAccess(
+        projectId: string,
+        userId: string
+    ): SharingUserAccessRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT project_id, user_id, access, created_at, updated_at
+                FROM app_project_user_access
+                WHERE project_id = ? AND user_id = ?
+                `
+            )
+            .get(projectId, userId) as Record<string, unknown> | undefined;
+
+        return row ? this.mapProjectUserAccess(row) : undefined;
+    }
+
+    putProjectUserAccess(record: SharingUserAccessRecord) {
+        this.db
+            .prepare(
+                `
+                INSERT INTO app_project_user_access (
+                    project_id, user_id, access, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, user_id) DO UPDATE SET
+                    access = excluded.access,
+                    updated_at = excluded.updated_at
+                `
+            )
+            .run(
+                record.resourceId,
+                record.userId,
+                record.access,
+                record.createdAt,
+                record.updatedAt
+            );
+    }
+
+    deleteProjectUserAccess(projectId: string, userId: string) {
+        this.db
+            .prepare(
+                `
+                DELETE FROM app_project_user_access
+                WHERE project_id = ? AND user_id = ?
+                `
+            )
+            .run(projectId, userId);
+    }
+
+    listDiagramUserAccess(diagramId: string): SharingUserAccessRecord[] {
+        const rows = this.db
+            .prepare(
+                `
+                SELECT diagram_id, user_id, access, created_at, updated_at
+                FROM app_diagram_user_access
+                WHERE diagram_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                `
+            )
+            .all(diagramId) as Array<Record<string, unknown>>;
+
+        return rows.map((row) => this.mapDiagramUserAccess(row));
+    }
+
+    getDiagramUserAccess(
+        diagramId: string,
+        userId: string
+    ): SharingUserAccessRecord | undefined {
+        const row = this.db
+            .prepare(
+                `
+                SELECT diagram_id, user_id, access, created_at, updated_at
+                FROM app_diagram_user_access
+                WHERE diagram_id = ? AND user_id = ?
+                `
+            )
+            .get(diagramId, userId) as Record<string, unknown> | undefined;
+
+        return row ? this.mapDiagramUserAccess(row) : undefined;
+    }
+
+    putDiagramUserAccess(record: SharingUserAccessRecord) {
+        this.db
+            .prepare(
+                `
+                INSERT INTO app_diagram_user_access (
+                    diagram_id, user_id, access, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(diagram_id, user_id) DO UPDATE SET
+                    access = excluded.access,
+                    updated_at = excluded.updated_at
+                `
+            )
+            .run(
+                record.resourceId,
+                record.userId,
+                record.access,
+                record.createdAt,
+                record.updatedAt
+            );
+    }
+
+    deleteDiagramUserAccess(diagramId: string, userId: string) {
+        this.db
+            .prepare(
+                `
+                DELETE FROM app_diagram_user_access
+                WHERE diagram_id = ? AND user_id = ?
+                `
+            )
+            .run(diagramId, userId);
     }
 
     listDiagramSessions(diagramId: string): DiagramSessionRecord[] {
@@ -1164,6 +1401,9 @@ export class AppRepository {
             shareUpdatedAt: row.share_updated_at
                 ? String(row.share_updated_at)
                 : null,
+            shareExpiresAt: row.share_expires_at
+                ? String(row.share_expires_at)
+                : null,
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
         };
@@ -1188,6 +1428,9 @@ export class AppRepository {
             shareUpdatedAt: row.share_updated_at
                 ? String(row.share_updated_at)
                 : null,
+            shareExpiresAt: row.share_expires_at
+                ? String(row.share_expires_at)
+                : null,
             document: diagramDocumentSchema.parse(
                 parseJson<DiagramDocument>(String(row.document_json))
             ),
@@ -1201,6 +1444,30 @@ export class AppRepository {
             lastSavedByUserId: row.last_saved_by_user_id
                 ? String(row.last_saved_by_user_id)
                 : null,
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
+        };
+    }
+
+    private mapProjectUserAccess(
+        row: Record<string, unknown>
+    ): SharingUserAccessRecord {
+        return {
+            resourceId: String(row.project_id),
+            userId: String(row.user_id),
+            access: sharingAccessSchema.parse(row.access),
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
+        };
+    }
+
+    private mapDiagramUserAccess(
+        row: Record<string, unknown>
+    ): SharingUserAccessRecord {
+        return {
+            resourceId: String(row.diagram_id),
+            userId: String(row.user_id),
+            access: sharingAccessSchema.parse(row.access),
             createdAt: String(row.created_at),
             updatedAt: String(row.updated_at),
         };
