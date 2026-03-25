@@ -17,13 +17,21 @@ export const requestJson = async <T>(
     path: string,
     init?: RequestInit
 ): Promise<T> => {
+    const headers = new Headers(init?.headers ?? {});
+    const hasBody = init?.body !== undefined && init.body !== null;
+
+    if (
+        hasBody &&
+        !(init?.body instanceof FormData) &&
+        !headers.has('Content-Type')
+    ) {
+        headers.set('Content-Type', 'application/json');
+    }
+
     const response = await fetch(apiPath(path), {
         credentials: 'include',
-        headers: {
-            'Content-Type': 'application/json',
-            ...(init?.headers ?? {}),
-        },
         ...init,
+        headers,
     });
 
     const text = await response.text();
