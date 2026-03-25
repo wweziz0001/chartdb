@@ -158,6 +158,59 @@ const createSharedDiagramFixture = async (
     };
 };
 
+const createDirectlySharedDiagramFixture = async (
+    app: ReturnType<typeof buildApp>,
+    ownerCookie: string
+) => {
+    const bootstrapResponse = await app.inject({
+        method: 'GET',
+        url: '/api/app/bootstrap',
+        headers: {
+            cookie: ownerCookie,
+        },
+    });
+    const projectId = bootstrapResponse.json().defaultProject.id as string;
+
+    const createDiagramResponse = await app.inject({
+        method: 'PUT',
+        url: '/api/diagrams/direct-collab-diagram',
+        headers: {
+            cookie: ownerCookie,
+        },
+        payload: {
+            projectId,
+            diagram: {
+                id: 'ignored',
+                name: 'Direct Share ERD',
+                databaseType: 'postgresql',
+                tables: [{ id: 'tbl-1', name: 'users' }],
+                createdAt: '2026-03-25T12:00:00.000Z',
+                updatedAt: '2026-03-25T12:00:00.000Z',
+            },
+        },
+    });
+
+    expect(createDiagramResponse.statusCode).toBe(200);
+
+    const shareResponse = await app.inject({
+        method: 'POST',
+        url: '/api/diagrams/direct-collab-diagram/sharing/people',
+        headers: {
+            cookie: ownerCookie,
+        },
+        payload: {
+            userId: 'member-user',
+            access: 'edit',
+        },
+    });
+    expect(shareResponse.statusCode).toBe(200);
+
+    return {
+        projectId,
+        diagramId: 'direct-collab-diagram',
+    };
+};
+
 const createDiagramSession = async (
     app: ReturnType<typeof buildApp>,
     diagramId: string,
@@ -602,6 +655,110 @@ describe('collaboration routes', () => {
         expect(documentEvent.event).toBe('document');
         expect(documentEvent.data.sessionId).toBe(ownerSession.session.id);
         expect(documentEvent.data.collaboration.document.version).toBe(2);
+
+        await stream.close();
+        await app.close();
+    });
+
+    it('persists direct-share editor saves and exposes them to the owner', async () => {
+        const env = createAuthEnv();
+        const repository = new AppRepository(env.appDbPath);
+        const app = buildApp({
+            env,
+            appRepository: repository,
+        });
+        repository.putUserAuthRecord(createMemberUser());
+
+        const ownerCookie = await login(
+            app,
+            'owner@example.com',
+            'super-secret-password'
+        );
+        const memberCookie = await login(
+            app,
+            'member@example.com',
+            'member-password'
+        );
+        const { projectId, diagramId } =
+            await createDirectlySharedDiagramFixture(app, ownerCookie);
+        const ownerSession = await createDiagramSession(
+            app,
+            diagramId,
+            ownerCookie
+        );
+        const memberSession = await createDiagramSession(
+            app,
+            diagramId,
+            memberCookie
+        );
+
+        const baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
+        const stream = await openEventStream(
+            `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${ownerSession.session.id}`,
+            ownerCookie
+        );
+        const initialEvent = await stream.nextEvent();
+        expect(initialEvent.event).toBe('snapshot');
+        expect(initialEvent.data.collaboration.document.version).toBe(1);
+
+        const memberUpdateResponse = await app.inject({
+            method: 'PUT',
+            url: `/api/diagrams/${diagramId}`,
+            headers: {
+                cookie: memberCookie,
+            },
+            payload: {
+                projectId,
+                sessionId: memberSession.session.id,
+                baseVersion: memberSession.session.baseVersion,
+                diagram: {
+                    id: 'ignored',
+                    name: 'Direct Share ERD',
+                    databaseType: 'postgresql',
+                    tables: [
+                        { id: 'tbl-1', name: 'users' },
+                        { id: 'tbl-2', name: 'projects' },
+                    ],
+                    createdAt: '2026-03-25T12:00:00.000Z',
+                    updatedAt: '2026-03-25T12:05:00.000Z',
+                },
+            },
+        });
+        expect(memberUpdateResponse.statusCode).toBe(200);
+        expect(memberUpdateResponse.json().diagram).toEqual(
+            expect.objectContaining({
+                access: 'edit',
+            })
+        );
+
+        const ownerDocumentEvent = await stream.nextEvent();
+        expect(ownerDocumentEvent.event).toBe('document');
+        expect(ownerDocumentEvent.data.sessionId).toBe(
+            memberSession.session.id
+        );
+        expect(ownerDocumentEvent.data.collaboration.document.version).toBe(2);
+
+        const ownerReloadResponse = await app.inject({
+            method: 'GET',
+            url: `/api/diagrams/${diagramId}`,
+            headers: {
+                cookie: ownerCookie,
+            },
+        });
+        expect(ownerReloadResponse.statusCode).toBe(200);
+        expect(ownerReloadResponse.json().diagram.tables).toEqual([
+            expect.objectContaining({
+                id: 'tbl-1',
+                name: 'users',
+            }),
+            expect.objectContaining({
+                id: 'tbl-2',
+                name: 'projects',
+            }),
+        ]);
+        expect(ownerReloadResponse.json().collaboration.document.version).toBe(
+            2
+        );
 
         await stream.close();
         await app.close();
