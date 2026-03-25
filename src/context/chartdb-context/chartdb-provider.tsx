@@ -44,7 +44,10 @@ import type { DiagramSchemaSync } from '@/lib/domain/schema-sync';
 import type { DiagramSessionState } from '../storage-context/storage-context';
 import { useToast } from '@/components/toast/use-toast';
 import { ToastAction } from '@/components/toast/toast';
-import type { PersistedDiagramCollaborationEvent } from '@/features/persistence/api/persistence-client';
+import type {
+    PersistedDiagramCollaborationEvent,
+    ResourceAccess,
+} from '@/features/persistence/api/persistence-client';
 
 export interface ChartDBProviderProps {
     diagram?: Diagram;
@@ -96,6 +99,9 @@ export const ChartDBProvider: React.FC<
     );
     const [notes, setNotes] = useState<Note[]>(diagram?.notes ?? []);
     const [diagramSession, setDiagramSession] = useState<DiagramSessionState>();
+    const [diagramAccess, setDiagramAccess] = useState<
+        ResourceAccess | undefined
+    >(readonlyProp ? 'view' : undefined);
     const applyingRemoteRefreshRef = useRef(false);
     const remoteRefreshTimerRef = useRef<number>();
     const staleToastIdRef = useRef<string>();
@@ -131,8 +137,8 @@ export const ChartDBProvider: React.FC<
     );
 
     const readonly = useMemo(
-        () => readonlyProp ?? hasDiff ?? false,
-        [readonlyProp, hasDiff]
+        () => readonlyProp || hasDiff || diagramAccess === 'view',
+        [diagramAccess, hasDiff, readonlyProp]
     );
 
     const schemas = useMemo(
@@ -328,6 +334,10 @@ export const ChartDBProvider: React.FC<
         }, [db, diagramId, setDiagramUpdatedAt]);
 
     const saveDiagram: ChartDBContext['saveDiagram'] = useCallback(async () => {
+        if (readonly) {
+            return;
+        }
+
         const updatedAt = new Date();
         setDiagramUpdatedAt(updatedAt);
         await db.updateDiagram({
@@ -341,7 +351,14 @@ export const ChartDBProvider: React.FC<
         });
         const nextSession = await storageDB.getDiagramSessionState(diagramId);
         setDiagramSession(nextSession);
-    }, [db, diagramId, diagramSession, setDiagramUpdatedAt, storageDB]);
+    }, [
+        db,
+        diagramId,
+        diagramSession,
+        readonly,
+        setDiagramUpdatedAt,
+        storageDB,
+    ]);
 
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
@@ -2047,6 +2064,8 @@ export const ChartDBProvider: React.FC<
                 FULL_DIAGRAM_LOAD_OPTIONS
             );
             if (nextDiagram) {
+                const savedDiagram = await storageDB.getSavedDiagram(diagramId);
+                setDiagramAccess(savedDiagram?.access);
                 loadDiagramFromData(nextDiagram);
             }
         } finally {
@@ -2075,8 +2094,10 @@ export const ChartDBProvider: React.FC<
             const diagram = await storageDB.getDiagram(diagramId, {
                 ...FULL_DIAGRAM_LOAD_OPTIONS,
             });
+            const savedDiagram = await storageDB.getSavedDiagram(diagramId);
 
             if (diagram) {
+                setDiagramAccess(savedDiagram?.access);
                 loadDiagramFromData(diagram);
                 try {
                     const nextSession = await storageDB.activateDiagramSession({

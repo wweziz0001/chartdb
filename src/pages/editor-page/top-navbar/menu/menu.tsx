@@ -32,8 +32,13 @@ import { useAlert } from '@/context/alert-context/alert-context';
 export interface MenuProps {}
 
 export const Menu: React.FC<MenuProps> = () => {
-    const { clearDiagramData, deleteDiagram, saveDiagram, databaseType } =
-        useChartDB();
+    const {
+        clearDiagramData,
+        deleteDiagram,
+        saveDiagram,
+        databaseType,
+        readonly,
+    } = useChartDB();
     const {
         openCreateDiagramDialog,
         openOpenDiagramDialog,
@@ -164,7 +169,7 @@ export const Menu: React.FC<MenuProps> = () => {
                             }
                         </MenubarShortcut>
                     </MenubarItem>
-                    <MenubarItem onClick={saveDiagram}>
+                    <MenubarItem onClick={saveDiagram} disabled={readonly}>
                         {t('menu.actions.save')}
                         <MenubarShortcut>
                             {
@@ -174,7 +179,10 @@ export const Menu: React.FC<MenuProps> = () => {
                             }
                         </MenubarShortcut>
                     </MenubarItem>
-                    <MenubarItem onClick={() => openSaveDiagramDialog()}>
+                    <MenubarItem
+                        onClick={() => openSaveDiagramDialog()}
+                        disabled={readonly}
+                    >
                         {t('menu.actions.save_as')}
                     </MenubarItem>
                     <MenubarSeparator />
@@ -183,7 +191,10 @@ export const Menu: React.FC<MenuProps> = () => {
                             {t('menu.actions.import')}
                         </MenubarSubTrigger>
                         <MenubarSubContent>
-                            <MenubarItem onClick={openImportDiagramDialog}>
+                            <MenubarItem
+                                onClick={openImportDiagramDialog}
+                                disabled={readonly}
+                            >
                                 .json
                             </MenubarItem>
                             <MenubarSeparator />
@@ -195,6 +206,7 @@ export const Menu: React.FC<MenuProps> = () => {
                                         initialImportMethod: 'ddl',
                                     })
                                 }
+                                disabled={readonly}
                             >
                                 SQL
                             </MenubarItem>
@@ -206,6 +218,7 @@ export const Menu: React.FC<MenuProps> = () => {
                                         initialImportMethod: 'dbml',
                                     })
                                 }
+                                disabled={readonly}
                             >
                                 DBML
                             </MenubarItem>
@@ -322,6 +335,7 @@ export const Menu: React.FC<MenuProps> = () => {
                                 onAction: handleDeleteDiagramAction,
                             })
                         }
+                        disabled={readonly}
                     >
                         {t('menu.actions.delete_diagram')}
                     </MenubarItem>
@@ -363,6 +377,7 @@ export const Menu: React.FC<MenuProps> = () => {
                                 onAction: clearDiagramData,
                             })
                         }
+                        disabled={readonly}
                     >
                         {t('menu.edit.clear')}
                     </MenubarItem>

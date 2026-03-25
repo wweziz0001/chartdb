@@ -19,8 +19,13 @@ import { useDialog } from '@/hooks/use-dialog';
 export interface DiagramNameProps {}
 
 export const DiagramName: React.FC<DiagramNameProps> = () => {
-    const { diagramName, updateDiagramName, currentDiagram, diagramSession } =
-        useChartDB();
+    const {
+        diagramName,
+        updateDiagramName,
+        currentDiagram,
+        diagramSession,
+        readonly,
+    } = useChartDB();
 
     const { t } = useTranslation();
     const [editMode, setEditMode] = useState(false);
@@ -35,12 +40,23 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
         setEditedDiagramName(diagramName);
     }, [diagramName]);
 
+    useEffect(() => {
+        if (readonly) {
+            setEditMode(false);
+        }
+    }, [readonly]);
+
     const editDiagramName = useCallback(() => {
+        if (readonly) {
+            setEditMode(false);
+            return;
+        }
+
         if (editedDiagramName.trim()) {
             updateDiagramName(editedDiagramName.trim());
         }
         setEditMode(false);
-    }, [editedDiagramName, updateDiagramName]);
+    }, [editedDiagramName, readonly, updateDiagramName]);
 
     // Handle click outside to save and exit edit mode
     useClickAway(inputRef, editDiagramName);
@@ -63,11 +79,15 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
 
     const enterEditMode = useCallback(
         (event: React.MouseEvent<HTMLElement, MouseEvent>) => {
+            if (readonly) {
+                return;
+            }
+
             event.stopPropagation();
             setEditedDiagramName(diagramName);
             setEditMode(true);
         },
-        [diagramName]
+        [diagramName, readonly]
     );
 
     return (
@@ -123,7 +143,8 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
                                     <h1
                                         className={cn(
                                             labelVariants(),
-                                            'group-hover:underline max-w-[300px] truncate'
+                                            'max-w-[300px] truncate',
+                                            !readonly && 'group-hover:underline'
                                         )}
                                         onDoubleClick={(e) => {
                                             enterEditMode(e);
@@ -132,20 +153,31 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
                                         {diagramName}
                                     </h1>
                                 </TooltipTrigger>
-                                <TooltipContent>
-                                    {t('tool_tips.double_click_to_edit')}
-                                </TooltipContent>
+                                {!readonly ? (
+                                    <TooltipContent>
+                                        {t('tool_tips.double_click_to_edit')}
+                                    </TooltipContent>
+                                ) : null}
                             </Tooltip>
-                            <Button
-                                variant="ghost"
-                                className="ml-1 hidden size-5 p-0 hover:bg-background/50 group-hover:flex"
-                                onClick={enterEditMode}
-                            >
-                                <Pencil
-                                    strokeWidth="1.5"
-                                    className="!size-3.5 text-slate-600 dark:text-slate-400"
-                                />
-                            </Button>
+                            {!readonly ? (
+                                <Button
+                                    variant="ghost"
+                                    className="ml-1 hidden size-5 p-0 hover:bg-background/50 group-hover:flex"
+                                    onClick={enterEditMode}
+                                >
+                                    <Pencil
+                                        strokeWidth="1.5"
+                                        className="!size-3.5 text-slate-600 dark:text-slate-400"
+                                    />
+                                </Button>
+                            ) : (
+                                <Badge
+                                    variant="outline"
+                                    className="ml-2 px-2 py-0 text-[10px] uppercase tracking-[0.16em]"
+                                >
+                                    View only
+                                </Badge>
+                            )}
                             {activeCollaboratorCount > 1 ? (
                                 <Badge
                                     variant="secondary"
