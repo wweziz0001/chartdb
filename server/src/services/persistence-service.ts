@@ -39,6 +39,10 @@ import {
 } from './persistence-search.js';
 import { AppError } from '../utils/app-error.js';
 import { generateId } from '../utils/id.js';
+import {
+    type DiagramCollaborationBroker,
+    type DiagramCollaborationEvent,
+} from './diagram-collaboration-broker.js';
 
 export interface BootstrapResult {
     user: AppUserRecord;
@@ -70,8 +74,9 @@ export interface DiagramDocumentState {
 }
 
 export interface DiagramRealtimeCapability {
-    strategy: 'optimistic-http' | 'websocket-ready';
+    strategy: 'optimistic-http' | 'event-stream' | 'websocket-ready';
     liveSyncEnabled: boolean;
+    eventsEndpoint: string | null;
     websocketEndpoint: string | null;
     websocketProtocol: string | null;
     sessionEndpoint: string;
@@ -100,6 +105,7 @@ export interface DiagramEditSessionResponse {
     transport: {
         syncEndpoint: string;
         heartbeatEndpoint: string;
+        eventsEndpoint: string | null;
         websocketEndpoint: string | null;
         websocketProtocol: string | null;
     };
@@ -137,6 +143,7 @@ export class PersistenceService {
         },
         private readonly options: {
             authEnabled?: boolean;
+            collaborationBroker?: DiagramCollaborationBroker;
         } = {}
     ) {}
 
@@ -630,6 +637,12 @@ export class PersistenceService {
         };
 
         this.repository.putDiagramSession(session);
+        this.publishCollaborationEvent({
+            type: 'session',
+            diagramId: diagram.id,
+            sessionId: session.id,
+            collaboration: this.toDiagramCollaboration(diagram),
+        });
 
         return {
             session: this.toDiagramSessionResponse(session),
@@ -654,6 +667,40 @@ export class PersistenceService {
                 'Diagram session not found.',
                 404,
                 'DIAGRAM_SESSION_NOT_FOUND'
+            );
+        }
+
+        return {
+            session: this.toDiagramSessionResponse(session),
+            collaboration: this.toDiagramCollaboration(diagram),
+        };
+    }
+
+    assertCanSubscribeToDiagramEvents(
+        diagramId: string,
+        sessionId: string,
+        actor?: AppUserRecord | null
+    ) {
+        const diagram = this.requireDiagram(diagramId);
+        const access = this.getDiagramAccess(diagram, actor);
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const session = this.repository.getDiagramSession(diagramId, sessionId);
+        if (!session) {
+            throw new AppError(
+                'Diagram session not found.',
+                404,
+                'DIAGRAM_SESSION_NOT_FOUND'
+            );
+        }
+
+        if (session.status === 'closed') {
+            throw new AppError(
+                'Diagram edit session has already been closed.',
+                409,
+                'DIAGRAM_SESSION_CLOSED'
             );
         }
 
@@ -699,6 +746,12 @@ export class PersistenceService {
         };
 
         this.repository.putDiagramSession(nextSession);
+        this.publishCollaborationEvent({
+            type: 'session',
+            diagramId,
+            sessionId: nextSession.id,
+            collaboration: this.toDiagramCollaboration(diagram),
+        });
 
         return {
             session: this.toDiagramSessionResponse(nextSession),
@@ -777,6 +830,12 @@ export class PersistenceService {
         };
 
         this.repository.putDiagram(record);
+        this.publishCollaborationEvent({
+            type: 'document',
+            diagramId: record.id,
+            sessionId: payload.sessionId ?? null,
+            collaboration: this.toDiagramCollaboration(record),
+        });
         return this.toDiagramResponse(
             record,
             this.getDiagramAccess(record, actor)
@@ -849,6 +908,12 @@ export class PersistenceService {
         };
 
         this.repository.putDiagram(record);
+        this.publishCollaborationEvent({
+            type: 'document',
+            diagramId: record.id,
+            sessionId: payload.sessionId ?? null,
+            collaboration: this.toDiagramCollaboration(record),
+        });
         return this.toDiagramResponse(
             record,
             this.getDiagramAccess(record, actor)
@@ -1593,8 +1658,9 @@ export class PersistenceService {
                 lastSavedByUserId: diagram.lastSavedByUserId ?? null,
             },
             realtime: {
-                strategy: 'optimistic-http',
-                liveSyncEnabled: false,
+                strategy: 'event-stream',
+                liveSyncEnabled: true,
+                eventsEndpoint: `/api/diagrams/${diagram.id}/events`,
                 websocketEndpoint: null,
                 websocketProtocol: null,
                 sessionEndpoint: `/api/diagrams/${diagram.id}/sessions`,
@@ -1611,10 +1677,20 @@ export class PersistenceService {
             transport: {
                 syncEndpoint: `/api/diagrams/${session.diagramId}`,
                 heartbeatEndpoint: `/api/diagrams/${session.diagramId}/sessions/${session.id}`,
+                eventsEndpoint: `/api/diagrams/${session.diagramId}/events`,
                 websocketEndpoint: null,
                 websocketProtocol: null,
             },
         };
+    }
+
+    private publishCollaborationEvent(
+        event: Omit<DiagramCollaborationEvent, 'emittedAt'>
+    ) {
+        this.options.collaborationBroker?.publish({
+            ...event,
+            emittedAt: new Date().toISOString(),
+        });
     }
 
     private resolveCollectionId(collectionId?: string | null) {

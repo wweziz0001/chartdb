@@ -68,12 +68,14 @@ export type DiagramDocumentVersion = z.infer<
 
 export const diagramRealtimeStrategySchema = z.enum([
     'optimistic-http',
+    'event-stream',
     'websocket-ready',
 ]);
 
 export const diagramRealtimeCapabilitySchema = z.object({
     strategy: diagramRealtimeStrategySchema,
     liveSyncEnabled: z.boolean(),
+    eventsEndpoint: z.string().trim().min(1).nullable(),
     websocketEndpoint: z.string().trim().min(1).nullable(),
     websocketProtocol: z.string().trim().min(1).nullable(),
     sessionEndpoint: z.string().trim().min(1),
@@ -96,6 +98,7 @@ export type DiagramCollaborationState = z.infer<
 export const diagramSessionTransportSchema = z.object({
     syncEndpoint: z.string().trim().min(1),
     heartbeatEndpoint: z.string().trim().min(1),
+    eventsEndpoint: z.string().trim().min(1).nullable(),
     websocketEndpoint: z.string().trim().min(1).nullable(),
     websocketProtocol: z.string().trim().min(1).nullable(),
 });

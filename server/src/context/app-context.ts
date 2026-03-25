@@ -5,6 +5,7 @@ import { ApplyService } from '../services/apply-service.js';
 import { AdminService } from '../services/admin-service.js';
 import { AuthService } from '../services/auth-service.js';
 import { ConnectionsService } from '../services/connections-service.js';
+import { DiagramCollaborationBroker } from '../services/diagram-collaboration-broker.js';
 import type { OidcClientProvider } from '../services/oidc-provider.js';
 import { PersistenceService } from '../services/persistence-service.js';
 import { SchemaSyncService } from '../services/schema-sync-service.js';
@@ -16,6 +17,7 @@ export interface AppContext {
     authService: AuthService;
     adminService: AdminService;
     connectionsService: ConnectionsService;
+    diagramCollaborationBroker: DiagramCollaborationBroker;
     schemaSyncService: SchemaSyncService;
     applyService: ApplyService;
     persistenceService: PersistenceService;
@@ -40,6 +42,7 @@ export const createAppContext = (
         env,
         options?.oidcProvider
     );
+    const diagramCollaborationBroker = new DiagramCollaborationBroker();
     const adminService = new AdminService(appRepository, authService, env);
     const connectionsService = new ConnectionsService(
         metadataRepository,
@@ -62,6 +65,7 @@ export const createAppContext = (
         },
         {
             authEnabled: env.authMode !== 'disabled',
+            collaborationBroker: diagramCollaborationBroker,
         }
     );
 
@@ -72,6 +76,7 @@ export const createAppContext = (
         authService,
         adminService,
         connectionsService,
+        diagramCollaborationBroker,
         schemaSyncService,
         applyService,
         persistenceService,

@@ -189,9 +189,13 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     const remoteInitializedRef = useRef(false);
     const remoteInitPromiseRef = useRef<Promise<void> | null>(null);
     const syncTimersRef = useRef<Map<string, number>>(new Map());
+    const syncInFlightRef = useRef<Set<string>>(new Set());
     const diagramSessionsRef = useRef<Map<string, DiagramSessionState>>(
         new Map()
     );
+    const diagramSessionListenersRef = useRef<
+        Map<string, Set<(state: DiagramSessionState | undefined) => void>>
+    >(new Map());
 
     const db = useMemo(() => {
         const dexieDB = new Dexie('ChartDB') as Dexie & {
@@ -1102,10 +1106,41 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         void ensureRemotePersistenceReady();
     }, [ensureRemotePersistenceReady]);
 
+    const notifyDiagramSessionListeners = useCallback(
+        (diagramId: string, state: DiagramSessionState | undefined) => {
+            const listeners = diagramSessionListenersRef.current.get(diagramId);
+            if (!listeners) {
+                return;
+            }
+
+            for (const listener of listeners) {
+                listener(state);
+            }
+        },
+        []
+    );
+
+    const storeDiagramSessionState = useCallback(
+        (diagramId: string, state: DiagramSessionState | undefined) => {
+            if (state) {
+                diagramSessionsRef.current.set(diagramId, state);
+            } else {
+                diagramSessionsRef.current.delete(diagramId);
+            }
+
+            notifyDiagramSessionListeners(diagramId, state);
+            return state;
+        },
+        [notifyDiagramSessionListeners]
+    );
+
     const updateStoredDiagramSession = useCallback(
         (
             diagramId: string,
-            collaboration: PersistedDiagramCollaborationState
+            collaboration: PersistedDiagramCollaborationState,
+            options?: {
+                advanceBaseVersion?: boolean;
+            }
         ): DiagramSessionState | undefined => {
             const existingSession = diagramSessionsRef.current.get(diagramId);
             if (!existingSession) {
@@ -1117,7 +1152,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 collaboration,
                 session: {
                     ...existingSession.session,
-                    baseVersion: collaboration.document.version,
+                    baseVersion:
+                        options?.advanceBaseVersion === true
+                            ? collaboration.document.version
+                            : existingSession.session.baseVersion,
                     lastSeenDocumentVersion: Math.max(
                         existingSession.session.lastSeenDocumentVersion,
                         collaboration.document.version
@@ -1125,11 +1163,60 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 },
             };
 
-            diagramSessionsRef.current.set(diagramId, nextSession);
-            return nextSession;
+            return storeDiagramSessionState(diagramId, nextSession);
         },
-        []
+        [storeDiagramSessionState]
     );
+
+    const subscribeToDiagramSessionState: StorageContext['subscribeToDiagramSessionState'] =
+        useCallback((diagramId, listener) => {
+            const listeners =
+                diagramSessionListenersRef.current.get(diagramId) ?? new Set();
+            listeners.add(listener);
+            diagramSessionListenersRef.current.set(diagramId, listeners);
+            listener(diagramSessionsRef.current.get(diagramId));
+
+            return () => {
+                const currentListeners =
+                    diagramSessionListenersRef.current.get(diagramId);
+                if (!currentListeners) {
+                    return;
+                }
+
+                currentListeners.delete(listener);
+                if (currentListeners.size === 0) {
+                    diagramSessionListenersRef.current.delete(diagramId);
+                }
+            };
+        }, []);
+
+    const updateDiagramSessionAwareness: StorageContext['updateDiagramSessionAwareness'] =
+        useCallback(
+            (diagramId, awareness) => {
+                const existingSession =
+                    diagramSessionsRef.current.get(diagramId);
+                if (!existingSession) {
+                    return undefined;
+                }
+
+                return storeDiagramSessionState(diagramId, {
+                    ...existingSession,
+                    collaboration: {
+                        ...existingSession.collaboration,
+                        activeSessionCount: awareness.activeSessionCount,
+                    },
+                });
+            },
+            [storeDiagramSessionState]
+        );
+
+    const hasPendingDiagramSync: StorageContext['hasPendingDiagramSync'] =
+        useCallback(
+            (diagramId) =>
+                syncTimersRef.current.has(diagramId) ||
+                syncInFlightRef.current.has(diagramId),
+            []
+        );
 
     const activateDiagramSession: StorageContext['activateDiagramSession'] =
         useCallback(
@@ -1160,10 +1247,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     response.session,
                     response.collaboration
                 );
-                diagramSessionsRef.current.set(diagramId, nextSession);
-                return nextSession;
+                return storeDiagramSessionState(diagramId, nextSession);
             },
-            [ensureRemotePersistenceReady]
+            [ensureRemotePersistenceReady, storeDiagramSessionState]
         );
 
     const getDiagramSessionState: StorageContext['getDiagramSessionState'] =
@@ -1188,10 +1274,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     response.session,
                     response.collaboration
                 );
-                diagramSessionsRef.current.set(diagramId, nextSession);
-                return nextSession;
+                return storeDiagramSessionState(diagramId, nextSession);
             },
-            [ensureRemotePersistenceReady]
+            [ensureRemotePersistenceReady, storeDiagramSessionState]
         );
 
     const releaseDiagramSession: StorageContext['releaseDiagramSession'] =
@@ -1199,7 +1284,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             async (diagramId) => {
                 const existingSession =
                     diagramSessionsRef.current.get(diagramId);
-                diagramSessionsRef.current.delete(diagramId);
+                storeDiagramSessionState(diagramId, undefined);
 
                 if (!existingSession) {
                     return;
@@ -1229,7 +1314,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     });
                 }
             },
-            [ensureRemotePersistenceReady]
+            [ensureRemotePersistenceReady, storeDiagramSessionState]
         );
 
     const syncDiagramToRemote = useCallback(
@@ -1239,18 +1324,20 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 return;
             }
 
-            const diagram = await readLocalDiagram(
-                diagramId,
-                FULL_DIAGRAM_INCLUDE_OPTIONS
-            );
-            if (!diagram) {
-                return;
-            }
-
-            const savedDiagram = await db.saved_diagrams.get(diagramId);
+            syncInFlightRef.current.add(diagramId);
             const sessionState = diagramSessionsRef.current.get(diagramId);
 
             try {
+                const diagram = await readLocalDiagram(
+                    diagramId,
+                    FULL_DIAGRAM_INCLUDE_OPTIONS
+                );
+                if (!diagram) {
+                    return;
+                }
+
+                const savedDiagram = await db.saved_diagrams.get(diagramId);
+
                 const response = await persistenceClient.upsertDiagram(
                     diagramId,
                     {
@@ -1268,7 +1355,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 if (response.diagram.collaboration) {
                     updateStoredDiagramSession(
                         diagramId,
-                        response.diagram.collaboration
+                        response.diagram.collaboration,
+                        {
+                            advanceBaseVersion: true,
+                        }
                     );
                 }
             } catch (error) {
@@ -1277,7 +1367,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     error.status === 409 &&
                     sessionState
                 ) {
-                    diagramSessionsRef.current.set(diagramId, {
+                    storeDiagramSessionState(diagramId, {
                         ...sessionState,
                         session: {
                             ...sessionState.session,
@@ -1287,6 +1377,8 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 }
 
                 throw error;
+            } finally {
+                syncInFlightRef.current.delete(diagramId);
             }
         },
         [
@@ -1294,6 +1386,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             db,
             ensureRemotePersistenceReady,
             readLocalDiagram,
+            storeDiagramSessionState,
             updateStoredDiagramSession,
         ]
     );
@@ -2193,7 +2286,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 existingSession &&
                 (!sessionId || existingSession.session.id === sessionId)
             ) {
-                diagramSessionsRef.current.set(diagramId, {
+                storeDiagramSessionState(diagramId, {
                     ...existingSession,
                     collaboration: {
                         ...existingSession.collaboration,
@@ -2216,6 +2309,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             getSavedDiagram,
             readLocalDiagram,
             replaceLocalDiagramSnapshot,
+            storeDiagramSessionState,
         ]
     );
 
@@ -2353,7 +2447,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     if (remoteDiagram.collaboration) {
                         updateStoredDiagramSession(
                             id,
-                            remoteDiagram.collaboration
+                            remoteDiagram.collaboration,
+                            {
+                                advanceBaseVersion: true,
+                            }
                         );
                     }
                 } catch (error) {
@@ -2440,7 +2537,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const deleteDiagram: StorageContext['deleteDiagram'] = useCallback(
         async (id) => {
-            diagramSessionsRef.current.delete(id);
+            storeDiagramSessionState(id, undefined);
             await Promise.all([
                 db.diagrams.delete(id),
                 db.db_tables.where('diagramId').equals(id).delete(),
@@ -2465,7 +2562,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 }
             }
         },
-        [db, ensureRemotePersistenceReady]
+        [db, ensureRemotePersistenceReady, storeDiagramSessionState]
     );
 
     return (
@@ -2491,6 +2588,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 saveDiagram,
                 activateDiagramSession,
                 getDiagramSessionState,
+                subscribeToDiagramSessionState,
+                updateDiagramSessionAwareness,
+                hasPendingDiagramSync,
                 heartbeatDiagramSession,
                 releaseDiagramSession,
                 saveDiagramAs,
