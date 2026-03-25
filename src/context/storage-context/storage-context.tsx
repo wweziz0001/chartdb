@@ -14,6 +14,12 @@ import type {
     ExportBackupRequest,
     ImportBackupResult,
 } from '@/lib/project-backup/project-backup-format';
+import type {
+    PersistedSharingSettings,
+    ResourceAccess,
+    SharingAccess,
+    SharingScope,
+} from '@/features/persistence/api/persistence-client';
 
 export interface SavedCollection {
     id: string;
@@ -34,6 +40,9 @@ export interface SavedProject {
     ownerUserId: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'active' | 'archived' | 'deleted';
+    sharingScope: SharingScope;
+    sharingAccess: SharingAccess;
+    access: ResourceAccess;
     diagramCount: number;
     createdAt: Date;
     updatedAt: Date;
@@ -50,6 +59,9 @@ export interface SavedDiagram {
     databaseEdition: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'draft' | 'active' | 'archived';
+    sharingScope: SharingScope;
+    sharingAccess: SharingAccess;
+    access: ResourceAccess;
     tableCount: number;
     createdAt: Date;
     updatedAt: Date;
@@ -90,6 +102,15 @@ export interface StorageContext {
             collectionId?: string | null;
         }
     ) => Promise<SavedProject>;
+    getProjectSharing: (projectId: string) => Promise<PersistedSharingSettings>;
+    updateProjectSharing: (
+        projectId: string,
+        params: {
+            scope: SharingScope;
+            access: SharingAccess;
+            rotateLinkToken?: boolean;
+        }
+    ) => Promise<PersistedSharingSettings>;
     deleteProject: (projectId: string) => Promise<void>;
     listProjectDiagrams: (
         projectId: string,
@@ -106,6 +127,15 @@ export interface StorageContext {
             projectId?: string;
         }
     ) => Promise<SavedDiagram | undefined>;
+    getDiagramSharing: (diagramId: string) => Promise<PersistedSharingSettings>;
+    updateDiagramSharing: (
+        diagramId: string,
+        params: {
+            scope: SharingScope;
+            access: SharingAccess;
+            rotateLinkToken?: boolean;
+        }
+    ) => Promise<PersistedSharingSettings>;
     saveDiagram: (params: {
         diagramId: string;
         name?: string;
@@ -279,10 +309,14 @@ export const storageInitialValue: StorageContext = {
     listProjects: emptyFn,
     createProject: emptyFn,
     updateProject: emptyFn,
+    getProjectSharing: emptyFn,
+    updateProjectSharing: emptyFn,
     deleteProject: emptyFn,
     listProjectDiagrams: emptyFn,
     getSavedDiagram: emptyFn,
     updateSavedDiagram: emptyFn,
+    getDiagramSharing: emptyFn,
+    updateDiagramSharing: emptyFn,
     saveDiagram: emptyFn,
     saveDiagramAs: emptyFn,
     exportBackup: emptyFn,

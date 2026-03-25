@@ -6,6 +6,10 @@ import type {
     ImportBackupResult,
 } from '@/lib/project-backup/project-backup-format';
 
+export type SharingScope = 'private' | 'authenticated' | 'link';
+export type SharingAccess = 'view' | 'edit';
+export type ResourceAccess = 'view' | 'edit' | 'owner';
+
 export interface PersistedUserSummary {
     id: string;
     email: string | null;
@@ -26,6 +30,9 @@ export interface PersistedProjectSummary {
     ownerUserId: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'active' | 'archived' | 'deleted';
+    sharingScope: SharingScope;
+    sharingAccess: SharingAccess;
+    access: ResourceAccess;
     createdAt: string;
     updatedAt: string;
     diagramCount: number;
@@ -57,6 +64,9 @@ export interface PersistedDiagramSummary {
     databaseEdition: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'draft' | 'active' | 'archived';
+    sharingScope: SharingScope;
+    sharingAccess: SharingAccess;
+    access: ResourceAccess;
     tableCount: number;
     createdAt: string;
     updatedAt: string;
@@ -72,9 +82,24 @@ export interface PersistedDiagramRecord {
     databaseEdition: string | null;
     visibility: 'private' | 'workspace' | 'public';
     status: 'draft' | 'active' | 'archived';
+    sharingScope: SharingScope;
+    sharingAccess: SharingAccess;
+    access: ResourceAccess;
     createdAt: string;
     updatedAt: string;
     diagram: DiagramDto;
+}
+
+export interface PersistedSharingSettings {
+    scope: SharingScope;
+    access: SharingAccess;
+    sharePath: string | null;
+    shareUpdatedAt: string | null;
+}
+
+export interface SharedProjectResponse {
+    project: PersistedProjectSummary;
+    items: PersistedDiagramSummary[];
 }
 
 export interface PersistedProjectInput {
@@ -97,6 +122,12 @@ export interface PersistedDiagramUpdateInput {
     description?: string | null;
     visibility?: 'private' | 'workspace' | 'public';
     status?: 'draft' | 'active' | 'archived';
+}
+
+export interface PersistedSharingUpdateInput {
+    scope: SharingScope;
+    access: SharingAccess;
+    rotateLinkToken?: boolean;
 }
 
 export interface BootstrapResponse {
@@ -213,6 +244,21 @@ export const persistenceClient = {
         requestJson<{ ok: boolean }>(`/api/projects/${projectId}`, {
             method: 'DELETE',
         }),
+    getProjectSharing: async (projectId: string) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/projects/${projectId}/sharing`
+        ),
+    updateProjectSharing: async (
+        projectId: string,
+        payload: PersistedSharingUpdateInput
+    ) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/projects/${projectId}/sharing`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
     listProjectDiagrams: async (
         projectId: string,
         options?: { view?: 'summary' | 'full'; search?: string }
@@ -268,4 +314,35 @@ export const persistenceClient = {
         requestJson<{ ok: boolean }>(`/api/diagrams/${diagramId}`, {
             method: 'DELETE',
         }),
+    getDiagramSharing: async (diagramId: string) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/diagrams/${diagramId}/sharing`
+        ),
+    updateDiagramSharing: async (
+        diagramId: string,
+        payload: PersistedSharingUpdateInput
+    ) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/diagrams/${diagramId}/sharing`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
+    getSharedProject: async (projectId: string, shareToken: string) =>
+        requestJson<SharedProjectResponse>(
+            `/api/shared/projects/${projectId}/${shareToken}`
+        ),
+    getSharedProjectDiagram: async (
+        projectId: string,
+        shareToken: string,
+        diagramId: string
+    ) =>
+        requestJson<PersistedDiagramRecord>(
+            `/api/shared/projects/${projectId}/${shareToken}/diagrams/${diagramId}`
+        ),
+    getSharedDiagram: async (diagramId: string, shareToken: string) =>
+        requestJson<PersistedDiagramRecord>(
+            `/api/shared/diagrams/${diagramId}/${shareToken}`
+        ),
 };

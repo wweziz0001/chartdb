@@ -28,6 +28,7 @@ import { TopNavbarMock } from './top-navbar/top-navbar-mock';
 import { DiagramFilterProvider } from '@/context/diagram-filter-context/diagram-filter-provider';
 import { SchemaSyncProvider } from '@/features/schema-sync/context/schema-sync-context';
 import { SchemaSyncDialog } from '@/features/schema-sync/dialogs/schema-sync-dialog';
+import type { Diagram } from '@/lib/domain/diagram';
 
 const OPEN_STAR_US_AFTER_SECONDS = 30;
 const SHOW_STAR_US_AGAIN_AFTER_DAYS = 1;
@@ -40,13 +41,18 @@ export const EditorMobileLayoutLazy = React.lazy(
     () => import('./editor-mobile-layout')
 );
 
-const EditorPageComponent: React.FC = () => {
+const EditorPageComponent: React.FC<{
+    initialDiagramOverride?: Diagram;
+}> = ({ initialDiagramOverride }) => {
     const { diagramName, currentDiagram } = useChartDB();
     const { openStarUsDialog } = useDialog();
     const { isMd: isDesktop } = useBreakpoint('md');
     const { starUsDialogLastOpen, setStarUsDialogLastOpen, githubRepoOpened } =
         useLocalConfig();
-    const { initialDiagram } = useDiagramLoader();
+    const { initialDiagram } = useDiagramLoader({
+        enabled: initialDiagramOverride === undefined,
+    });
+    const resolvedInitialDiagram = initialDiagramOverride ?? initialDiagram;
 
     useEffect(() => {
         if (HIDE_CHARTDB_CLOUD) {
@@ -99,11 +105,11 @@ const EditorPageComponent: React.FC = () => {
                 >
                     {isDesktop ? (
                         <EditorDesktopLayoutLazy
-                            initialDiagram={initialDiagram}
+                            initialDiagram={resolvedInitialDiagram}
                         />
                     ) : (
                         <EditorMobileLayoutLazy
-                            initialDiagram={initialDiagram}
+                            initialDiagram={resolvedInitialDiagram}
                         />
                     )}
                 </Suspense>
@@ -114,7 +120,10 @@ const EditorPageComponent: React.FC = () => {
     );
 };
 
-export const EditorPage: React.FC = () => (
+export const EditorPage: React.FC<{
+    initialDiagram?: Diagram;
+    readonly?: boolean;
+}> = ({ initialDiagram, readonly = false }) => (
     <LocalConfigProvider>
         <ThemeProvider>
             <FullScreenLoaderProvider>
@@ -123,7 +132,10 @@ export const EditorPage: React.FC = () => (
                         <ConfigProvider>
                             <RedoUndoStackProvider>
                                 <DiffProvider>
-                                    <ChartDBProvider>
+                                    <ChartDBProvider
+                                        diagram={initialDiagram}
+                                        readonly={readonly}
+                                    >
                                         <DiagramFilterProvider>
                                             <HistoryProvider>
                                                 <ReactFlowProvider>
@@ -132,7 +144,11 @@ export const EditorPage: React.FC = () => (
                                                             <AlertProvider>
                                                                 <DialogProvider>
                                                                     <KeyboardShortcutsProvider>
-                                                                        <EditorPageComponent />
+                                                                        <EditorPageComponent
+                                                                            initialDiagramOverride={
+                                                                                initialDiagram
+                                                                            }
+                                                                        />
                                                                     </KeyboardShortcutsProvider>
                                                                 </DialogProvider>
                                                             </AlertProvider>

@@ -51,6 +51,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { BaseDialogProps } from '../common/base-dialog-props';
 import { DiagramRowActionsMenu } from './diagram-row-actions-menu/diagram-row-actions-menu';
+import { SharingSettingsDialog } from './sharing-settings-dialog';
 
 const ALL_COLLECTION_VALUE = '__all__';
 const UNASSIGNED_COLLECTION_VALUE = '__unassigned__';
@@ -91,9 +92,13 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
         listProjects,
         createProject,
         updateProject,
+        getProjectSharing,
+        updateProjectSharing,
         deleteProject,
         listProjectDiagrams,
         updateSavedDiagram,
+        getDiagramSharing,
+        updateDiagramSharing,
         deleteDiagram,
     } = useStorage();
     const { showAlert } = useAlert();
@@ -110,6 +115,11 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
         string | undefined
     >();
     const [searchTerm, setSearchTerm] = useState('');
+    const [sharingSubject, setSharingSubject] = useState<{
+        type: 'project' | 'diagram';
+        id: string;
+        name: string;
+    } | null>(null);
     const lastAppliedSearchTermRef = useRef<string | undefined>();
     const deferredSearchInput = useDeferredValue(searchTerm);
     const normalizedSearchTerm = useMemo(
@@ -624,6 +634,30 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
         ]
     );
 
+    const handleOpenProjectSharing = useCallback(() => {
+        if (!selectedProject || selectedProject.localOnly) {
+            return;
+        }
+
+        setSharingSubject({
+            type: 'project',
+            id: selectedProject.id,
+            name: selectedProject.name,
+        });
+    }, [selectedProject]);
+
+    const handleOpenDiagramSharing = useCallback((diagram: SavedDiagram) => {
+        if (diagram.localOnly) {
+            return;
+        }
+
+        setSharingSubject({
+            type: 'diagram',
+            id: diagram.id,
+            name: diagram.name,
+        });
+    }, []);
+
     const projectSectionTitle = selectedCollection
         ? selectedCollection.name
         : selectedCollectionId === UNASSIGNED_COLLECTION_VALUE
@@ -635,6 +669,26 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
         : selectedCollectionId === UNASSIGNED_COLLECTION_VALUE
           ? t('open_diagram_dialog.unassigned_collection_description')
           : t('open_diagram_dialog.all_projects_description');
+
+    const formatSharingSummary = useCallback(
+        (
+            scope: SavedProject['sharingScope'],
+            access: SavedProject['sharingAccess']
+        ) => {
+            if (scope === 'private') {
+                return t('open_diagram_dialog.sharing.mode_private');
+            }
+
+            if (scope === 'authenticated') {
+                return access === 'edit'
+                    ? t('open_diagram_dialog.sharing.authenticated_edit')
+                    : t('open_diagram_dialog.sharing.authenticated_view');
+            }
+
+            return t('open_diagram_dialog.sharing.link_view');
+        },
+        [t]
+    );
 
     return (
         <Dialog
@@ -931,6 +985,18 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                                 {selectedProject.description}
                                             </p>
                                         ) : null}
+                                        {selectedProject ? (
+                                            <p className="text-xs text-muted-foreground">
+                                                {t(
+                                                    'open_diagram_dialog.sharing.current_status'
+                                                )}
+                                                {' · '}
+                                                {formatSharingSummary(
+                                                    selectedProject.sharingScope,
+                                                    selectedProject.sharingAccess
+                                                )}
+                                            </p>
+                                        ) : null}
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
@@ -940,7 +1006,9 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                             variant="secondary"
                                             disabled={
                                                 !selectedProject ||
-                                                selectedProject.localOnly
+                                                selectedProject.localOnly ||
+                                                selectedProject.access !==
+                                                    'owner'
                                             }
                                             onClick={() =>
                                                 void handleRenameProject()
@@ -956,7 +1024,25 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                             variant="secondary"
                                             disabled={
                                                 !selectedProject ||
-                                                selectedProject.localOnly
+                                                selectedProject.localOnly ||
+                                                selectedProject.access !==
+                                                    'owner'
+                                            }
+                                            onClick={handleOpenProjectSharing}
+                                        >
+                                            {t(
+                                                'open_diagram_dialog.sharing.share_project'
+                                            )}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            disabled={
+                                                !selectedProject ||
+                                                selectedProject.localOnly ||
+                                                selectedProject.access !==
+                                                    'owner'
                                             }
                                             onClick={handleDeleteProject}
                                         >
@@ -979,6 +1065,10 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                             value={
                                                 selectedProject.collectionId ??
                                                 UNASSIGNED_COLLECTION_VALUE
+                                            }
+                                            disabled={
+                                                selectedProject.access !==
+                                                'owner'
                                             }
                                             onValueChange={(value) => {
                                                 void handleMoveProject(value);
@@ -1105,6 +1195,11 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                                                     );
                                                                     closeOpenDiagramDialog();
                                                                 }}
+                                                                onShare={() =>
+                                                                    handleOpenDiagramSharing(
+                                                                        diagram
+                                                                    )
+                                                                }
                                                                 onRename={() =>
                                                                     void handleRenameDiagram(
                                                                         diagram
@@ -1114,6 +1209,21 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                                                     handleDeleteDiagram(
                                                                         diagram
                                                                     )
+                                                                }
+                                                                canShare={
+                                                                    !diagram.localOnly &&
+                                                                    diagram.access ===
+                                                                        'owner'
+                                                                }
+                                                                canRename={
+                                                                    !diagram.localOnly &&
+                                                                    diagram.access ===
+                                                                        'owner'
+                                                                }
+                                                                canDelete={
+                                                                    !diagram.localOnly &&
+                                                                    diagram.access ===
+                                                                        'owner'
                                                                 }
                                                             />
                                                         </TableCell>
@@ -1189,6 +1299,34 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                     </div>
                 </DialogFooter>
             </DialogContent>
+            <SharingSettingsDialog
+                open={sharingSubject !== null}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen) {
+                        setSharingSubject(null);
+                    }
+                }}
+                subject={sharingSubject}
+                loadSharing={async (subject) =>
+                    subject.type === 'project'
+                        ? await getProjectSharing(subject.id)
+                        : await getDiagramSharing(subject.id)
+                }
+                saveSharing={async (subject, params) =>
+                    subject.type === 'project'
+                        ? await updateProjectSharing(subject.id, params)
+                        : await updateDiagramSharing(subject.id, params)
+                }
+                onSaved={async () => {
+                    await fetchLibrary(normalizedSearchTerm);
+                    if (selectedProjectId) {
+                        await fetchProjectDiagrams(
+                            selectedProjectId,
+                            normalizedSearchTerm
+                        );
+                    }
+                }}
+            />
         </Dialog>
     );
 };
