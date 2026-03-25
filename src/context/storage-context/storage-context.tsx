@@ -15,6 +15,8 @@ import type {
     ImportBackupResult,
 } from '@/lib/project-backup/project-backup-format';
 import type {
+    PersistedDiagramCollaborationState,
+    PersistedDiagramEditSession,
     PersistedSharingSettings,
     ResourceAccess,
     SharingAccess,
@@ -63,9 +65,15 @@ export interface SavedDiagram {
     sharingAccess: SharingAccess;
     access: ResourceAccess;
     tableCount: number;
+    collaboration?: PersistedDiagramCollaborationState;
     createdAt: Date;
     updatedAt: Date;
     localOnly?: boolean;
+}
+
+export interface DiagramSessionState {
+    session: PersistedDiagramEditSession;
+    collaboration: PersistedDiagramCollaborationState;
 }
 
 export interface StorageContext {
@@ -141,7 +149,24 @@ export interface StorageContext {
         name?: string;
         description?: string | null;
         projectId?: string;
+        sessionId?: string;
+        baseVersion?: number;
     }) => Promise<SavedDiagram | undefined>;
+    activateDiagramSession: (params: {
+        diagramId: string;
+        mode?: 'view' | 'edit';
+    }) => Promise<DiagramSessionState | undefined>;
+    getDiagramSessionState: (
+        diagramId: string
+    ) => Promise<DiagramSessionState | undefined>;
+    heartbeatDiagramSession: (params: {
+        diagramId: string;
+        sessionId: string;
+        status?: 'active' | 'idle' | 'stale' | 'closed';
+        lastSeenDocumentVersion?: number;
+        close?: boolean;
+    }) => Promise<DiagramSessionState | undefined>;
+    releaseDiagramSession: (diagramId: string) => Promise<void>;
     saveDiagramAs: (params: {
         diagramId: string;
         name: string;
@@ -318,6 +343,10 @@ export const storageInitialValue: StorageContext = {
     getDiagramSharing: emptyFn,
     updateDiagramSharing: emptyFn,
     saveDiagram: emptyFn,
+    activateDiagramSession: emptyFn,
+    getDiagramSessionState: emptyFn,
+    heartbeatDiagramSession: emptyFn,
+    releaseDiagramSession: emptyFn,
     saveDiagramAs: emptyFn,
     exportBackup: emptyFn,
     importBackup: emptyFn,

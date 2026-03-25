@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import type {
+    DiagramSessionState,
     SavedCollection,
     SavedDiagram,
     SavedProject,
@@ -22,6 +23,8 @@ import {
     deserializeDiagram,
     deserializeProjectSummary,
     type PersistedCollectionSummary,
+    type PersistedDiagramCollaborationState,
+    type PersistedDiagramEditSession,
     type PersistedDiagramSummary,
     type PersistedProjectSummary,
     persistenceClient,
@@ -29,6 +32,7 @@ import {
     type PersistedDiagramRecord,
 } from '@/features/persistence/api/persistence-client';
 import { cloneDiagram } from '@/lib/clone';
+import { RequestError } from '@/lib/api/request';
 import type {
     ChartDbBackupArchive,
     ExportBackupRequest,
@@ -138,6 +142,7 @@ const toCachedDiagram = (
         'tableCount' in diagram
             ? diagram.tableCount
             : (diagram.diagram.tables?.length ?? 0),
+    collaboration: diagram.collaboration,
     createdAt: new Date(diagram.createdAt),
     updatedAt: new Date(diagram.updatedAt),
 });
@@ -150,6 +155,14 @@ const toSavedDiagram = (
     ...diagram,
     tableCount,
     localOnly,
+});
+
+const toDiagramSessionState = (
+    session: PersistedDiagramEditSession,
+    collaboration: PersistedDiagramCollaborationState
+): DiagramSessionState => ({
+    session,
+    collaboration,
 });
 
 const normalizeSearchTerm = (value?: string) => {
@@ -176,6 +189,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     const remoteInitializedRef = useRef(false);
     const remoteInitPromiseRef = useRef<Promise<void> | null>(null);
     const syncTimersRef = useRef<Map<string, number>>(new Map());
+    const diagramSessionsRef = useRef<Map<string, DiagramSessionState>>(
+        new Map()
+    );
 
     const db = useMemo(() => {
         const dexieDB = new Dexie('ChartDB') as Dexie & {
@@ -1086,6 +1102,136 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         void ensureRemotePersistenceReady();
     }, [ensureRemotePersistenceReady]);
 
+    const updateStoredDiagramSession = useCallback(
+        (
+            diagramId: string,
+            collaboration: PersistedDiagramCollaborationState
+        ): DiagramSessionState | undefined => {
+            const existingSession = diagramSessionsRef.current.get(diagramId);
+            if (!existingSession) {
+                return undefined;
+            }
+
+            const nextSession = {
+                ...existingSession,
+                collaboration,
+                session: {
+                    ...existingSession.session,
+                    baseVersion: collaboration.document.version,
+                    lastSeenDocumentVersion: Math.max(
+                        existingSession.session.lastSeenDocumentVersion,
+                        collaboration.document.version
+                    ),
+                },
+            };
+
+            diagramSessionsRef.current.set(diagramId, nextSession);
+            return nextSession;
+        },
+        []
+    );
+
+    const activateDiagramSession: StorageContext['activateDiagramSession'] =
+        useCallback(
+            async ({ diagramId, mode = 'edit' }) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    return undefined;
+                }
+
+                const existingSession =
+                    diagramSessionsRef.current.get(diagramId);
+                if (
+                    existingSession &&
+                    existingSession.session.status !== 'closed'
+                ) {
+                    return existingSession;
+                }
+
+                const response = await persistenceClient.createDiagramSession(
+                    diagramId,
+                    {
+                        mode,
+                        clientId: `${window.location.pathname}:${diagramId}`,
+                        userAgent: navigator.userAgent,
+                    }
+                );
+                const nextSession = toDiagramSessionState(
+                    response.session,
+                    response.collaboration
+                );
+                diagramSessionsRef.current.set(diagramId, nextSession);
+                return nextSession;
+            },
+            [ensureRemotePersistenceReady]
+        );
+
+    const getDiagramSessionState: StorageContext['getDiagramSessionState'] =
+        useCallback(async (diagramId) => {
+            return diagramSessionsRef.current.get(diagramId);
+        }, []);
+
+    const heartbeatDiagramSession: StorageContext['heartbeatDiagramSession'] =
+        useCallback(
+            async ({ diagramId, sessionId, ...payload }) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    return diagramSessionsRef.current.get(diagramId);
+                }
+
+                const response = await persistenceClient.updateDiagramSession(
+                    diagramId,
+                    sessionId,
+                    payload
+                );
+                const nextSession = toDiagramSessionState(
+                    response.session,
+                    response.collaboration
+                );
+                diagramSessionsRef.current.set(diagramId, nextSession);
+                return nextSession;
+            },
+            [ensureRemotePersistenceReady]
+        );
+
+    const releaseDiagramSession: StorageContext['releaseDiagramSession'] =
+        useCallback(
+            async (diagramId) => {
+                const existingSession =
+                    diagramSessionsRef.current.get(diagramId);
+                diagramSessionsRef.current.delete(diagramId);
+
+                if (!existingSession) {
+                    return;
+                }
+
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    return;
+                }
+
+                try {
+                    await persistenceClient.updateDiagramSession(
+                        diagramId,
+                        existingSession.session.id,
+                        {
+                            close: true,
+                            status: 'closed',
+                            lastSeenDocumentVersion:
+                                existingSession.collaboration.document.version,
+                        }
+                    );
+                } catch (error) {
+                    console.warn('Failed to close diagram edit session.', {
+                        diagramId,
+                        sessionId: existingSession.session.id,
+                        error,
+                    });
+                }
+            },
+            [ensureRemotePersistenceReady]
+        );
+
     const syncDiagramToRemote = useCallback(
         async (diagramId: string): Promise<void> => {
             await ensureRemotePersistenceReady();
@@ -1102,15 +1248,54 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             }
 
             const savedDiagram = await db.saved_diagrams.get(diagramId);
-            const response = await persistenceClient.upsertDiagram(diagramId, {
-                projectId:
-                    savedDiagram?.projectId ?? remoteProjectIdRef.current,
-                description: savedDiagram?.description ?? undefined,
-                diagram: serializeDiagram(diagram),
-            });
-            await cacheDiagram(response.diagram);
+            const sessionState = diagramSessionsRef.current.get(diagramId);
+
+            try {
+                const response = await persistenceClient.upsertDiagram(
+                    diagramId,
+                    {
+                        projectId:
+                            savedDiagram?.projectId ??
+                            remoteProjectIdRef.current,
+                        description: savedDiagram?.description ?? undefined,
+                        sessionId: sessionState?.session.id,
+                        baseVersion:
+                            sessionState?.collaboration.document.version,
+                        diagram: serializeDiagram(diagram),
+                    }
+                );
+                await cacheDiagram(response.diagram);
+                if (response.diagram.collaboration) {
+                    updateStoredDiagramSession(
+                        diagramId,
+                        response.diagram.collaboration
+                    );
+                }
+            } catch (error) {
+                if (
+                    error instanceof RequestError &&
+                    error.status === 409 &&
+                    sessionState
+                ) {
+                    diagramSessionsRef.current.set(diagramId, {
+                        ...sessionState,
+                        session: {
+                            ...sessionState.session,
+                            status: 'stale',
+                        },
+                    });
+                }
+
+                throw error;
+            }
         },
-        [cacheDiagram, db, ensureRemotePersistenceReady, readLocalDiagram]
+        [
+            cacheDiagram,
+            db,
+            ensureRemotePersistenceReady,
+            readLocalDiagram,
+            updateStoredDiagramSession,
+        ]
     );
 
     const scheduleDiagramSync = useCallback(
@@ -1928,7 +2113,14 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         );
 
     const saveDiagram: StorageContext['saveDiagram'] = useCallback(
-        async ({ diagramId, name, description, projectId }) => {
+        async ({
+            diagramId,
+            name,
+            description,
+            projectId,
+            sessionId,
+            baseVersion,
+        }) => {
             const localDiagram = await readLocalDiagram(
                 diagramId,
                 FULL_DIAGRAM_INCLUDE_OPTIONS
@@ -1995,6 +2187,25 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 createdAt: savedDiagram?.createdAt ?? nextDiagram.createdAt,
                 updatedAt: nextDiagram.updatedAt,
             });
+
+            const existingSession = diagramSessionsRef.current.get(diagramId);
+            if (
+                existingSession &&
+                (!sessionId || existingSession.session.id === sessionId)
+            ) {
+                diagramSessionsRef.current.set(diagramId, {
+                    ...existingSession,
+                    collaboration: {
+                        ...existingSession.collaboration,
+                        document: {
+                            ...existingSession.collaboration.document,
+                            version:
+                                baseVersion ??
+                                existingSession.collaboration.document.version,
+                        },
+                    },
+                });
+            }
 
             await flushDiagramSync(diagramId);
             return await getSavedDiagram(diagramId);
@@ -2139,6 +2350,12 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                         deserializeDiagram(remoteDiagram.diagram)
                     );
                     await cacheDiagram(remoteDiagram);
+                    if (remoteDiagram.collaboration) {
+                        updateStoredDiagramSession(
+                            id,
+                            remoteDiagram.collaboration
+                        );
+                    }
                 } catch (error) {
                     console.warn(
                         'Failed to refresh diagram from ChartDB API.',
@@ -2157,6 +2374,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             ensureRemotePersistenceReady,
             readLocalDiagram,
             replaceLocalDiagramSnapshot,
+            updateStoredDiagramSession,
         ]
     );
 
@@ -2222,6 +2440,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const deleteDiagram: StorageContext['deleteDiagram'] = useCallback(
         async (id) => {
+            diagramSessionsRef.current.delete(id);
             await Promise.all([
                 db.diagrams.delete(id),
                 db.db_tables.where('diagramId').equals(id).delete(),
@@ -2270,6 +2489,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 getDiagramSharing,
                 updateDiagramSharing,
                 saveDiagram,
+                activateDiagramSession,
+                getDiagramSessionState,
+                heartbeatDiagramSession,
+                releaseDiagramSession,
                 saveDiagramAs,
                 exportBackup,
                 importBackup,

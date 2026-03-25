@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DBTable } from '@/lib/domain/db-table';
 import { deepCopy, generateId } from '@/lib/utils';
 import { defaultTableColor, defaultAreaColor, viewColor } from '@/lib/colors';
@@ -35,6 +35,7 @@ import {
 } from '@/lib/domain/db-custom-type';
 import { getDefaultPrimaryKeyType } from '@/lib/data/data-types/data-types';
 import type { DiagramSchemaSync } from '@/lib/domain/schema-sync';
+import type { DiagramSessionState } from '../storage-context/storage-context';
 
 export interface ChartDBProviderProps {
     diagram?: Diagram;
@@ -75,6 +76,7 @@ export const ChartDBProvider: React.FC<
         diagram?.customTypes ?? []
     );
     const [notes, setNotes] = useState<Note[]>(diagram?.notes ?? []);
+    const [diagramSession, setDiagramSession] = useState<DiagramSessionState>();
 
     const { events: diffEvents } = useDiff();
 
@@ -177,6 +179,47 @@ export const ChartDBProvider: React.FC<
         ]
     );
 
+    useEffect(() => {
+        if (!diagramSession?.session.id || !diagramId) {
+            return;
+        }
+
+        const interval = window.setInterval(() => {
+            void storageDB
+                .heartbeatDiagramSession({
+                    diagramId,
+                    sessionId: diagramSession.session.id,
+                    status: readonly ? 'idle' : 'active',
+                    lastSeenDocumentVersion:
+                        diagramSession.collaboration.document.version,
+                })
+                .then((nextSession) => {
+                    if (nextSession) {
+                        setDiagramSession(nextSession);
+                    }
+                })
+                .catch((error) => {
+                    console.warn('Failed to heartbeat diagram session.', {
+                        diagramId,
+                        sessionId: diagramSession.session.id,
+                        error,
+                    });
+                });
+        }, 15000);
+
+        return () => window.clearInterval(interval);
+    }, [diagramId, diagramSession, readonly, storageDB]);
+
+    useEffect(() => {
+        return () => {
+            if (!diagramId) {
+                return;
+            }
+
+            void storageDB.releaseDiagramSession(diagramId);
+        };
+    }, [diagramId, storageDB]);
+
     const clearDiagramData: ChartDBContext['clearDiagramData'] =
         useCallback(async () => {
             const updatedAt = new Date();
@@ -205,6 +248,8 @@ export const ChartDBProvider: React.FC<
 
     const deleteDiagram: ChartDBContext['deleteDiagram'] =
         useCallback(async () => {
+            await storageDB.releaseDiagramSession(diagramId);
+            setDiagramSession(undefined);
             setDiagramId('');
             setDiagramName('');
             setDatabaseType(DatabaseType.GENERIC);
@@ -228,7 +273,7 @@ export const ChartDBProvider: React.FC<
                 db.deleteDiagramCustomTypes(diagramId),
                 db.deleteDiagramNotes(diagramId),
             ]);
-        }, [db, diagramId, resetRedoStack, resetUndoStack]);
+        }, [db, diagramId, resetRedoStack, resetUndoStack, storageDB]);
 
     const updateDiagramUpdatedAt: ChartDBContext['updateDiagramUpdatedAt'] =
         useCallback(async () => {
@@ -247,8 +292,14 @@ export const ChartDBProvider: React.FC<
             id: diagramId,
             attributes: { updatedAt },
         });
-        await storageDB.saveDiagram({ diagramId });
-    }, [db, diagramId, setDiagramUpdatedAt, storageDB]);
+        await storageDB.saveDiagram({
+            diagramId,
+            sessionId: diagramSession?.session.id,
+            baseVersion: diagramSession?.collaboration.document.version,
+        });
+        const nextSession = await storageDB.getDiagramSessionState(diagramId);
+        setDiagramSession(nextSession);
+    }, [db, diagramId, diagramSession, setDiagramUpdatedAt, storageDB]);
 
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
@@ -1953,6 +2004,12 @@ export const ChartDBProvider: React.FC<
 
     const loadDiagram: ChartDBContext['loadDiagram'] = useCallback(
         async (diagramId: string) => {
+            if (diagramSession?.session.diagramId) {
+                await storageDB.releaseDiagramSession(
+                    diagramSession.session.diagramId
+                );
+            }
+
             const diagram = await storageDB.getDiagram(diagramId, {
                 includeRelationships: true,
                 includeTables: true,
@@ -1964,11 +2021,27 @@ export const ChartDBProvider: React.FC<
 
             if (diagram) {
                 loadDiagramFromData(diagram);
+                try {
+                    const nextSession = await storageDB.activateDiagramSession({
+                        diagramId,
+                        mode: readonly ? 'view' : 'edit',
+                    });
+                    setDiagramSession(nextSession);
+                } catch (error) {
+                    console.warn(
+                        'Failed to activate diagram collaboration session.',
+                        {
+                            diagramId,
+                            error,
+                        }
+                    );
+                    setDiagramSession(undefined);
+                }
             }
 
             return diagram;
         },
-        [storageDB, loadDiagramFromData]
+        [diagramSession, loadDiagramFromData, readonly, storageDB]
     );
 
     // Custom type operations
@@ -2127,6 +2200,7 @@ export const ChartDBProvider: React.FC<
                 areas,
                 notes,
                 currentDiagram,
+                diagramSession,
                 schemas,
                 events,
                 readonly,
