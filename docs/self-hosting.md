@@ -2,6 +2,8 @@
 
 ChartDB can run as a lightweight self-hosted stack with a static web container, a Fastify API, and local SQLite persistence for application metadata.
 
+The optional PostgreSQL container in `docker-compose.yml` is a convenience service for local schema-sync testing. ChartDB's own application state still persists in SQLite unless you are connecting the schema-sync workflow to an external live PostgreSQL database.
+
 ## Local run
 
 Copy the example environment file and choose local secrets:
@@ -82,7 +84,7 @@ Backend runtime variables:
 - `CHARTDB_API_PORT`: backend listen port, defaults to `4010`
 - `CHARTDB_CORS_ORIGIN`: allowed browser origin for API access
 - `CHARTDB_TRUST_PROXY`: `false`, `true`, or a positive hop count such as `1`
-- `CHARTDB_SECRET_KEY`: required production secret used for encrypted connection storage and signed auth flow state
+- `CHARTDB_SECRET_KEY`: required production secret used for encrypted PostgreSQL connection storage and signed auth flow state
 - `CHARTDB_DATA_DIR`: directory for local SQLite files
 - `CHARTDB_APP_DB_PATH`: optional explicit path for the app persistence SQLite database
 - `CHARTDB_METADATA_DB_PATH`: optional explicit path for the schema-sync metadata SQLite database
@@ -107,6 +109,11 @@ Authentication variables:
 - `CHARTDB_OIDC_REDIRECT_URL`: registered OIDC callback URL
 - `CHARTDB_OIDC_LOGOUT_URL`: optional provider logout continuation URL
 - `CHARTDB_OIDC_SCOPES`: optional OIDC scopes, defaults to `openid profile email`
+
+Operational note:
+
+- when `CHARTDB_AUTH_MODE` is `password` or `oidc`, live PostgreSQL connection management plus schema import/diff/apply routes are restricted to authenticated admins
+- when auth is disabled, those routes remain available as part of the single-user/local-owner deployment model
 
 Compose helper variables:
 
@@ -134,3 +141,4 @@ Compose helper variables:
 - Keep API replicas at `1` today. ChartDB currently uses SQLite plus in-memory collaboration state, so multi-replica API deployments need extra coordination work before they are safe.
 - The web container is stateless and is compatible with future Kubernetes ingress or service-based routing.
 - For Kubernetes, map probes to `/healthz`, `/api/livez`, and `/api/readyz`, and back the API pod with a persistent volume claim.
+- Review [Schema Sync Architecture](./schema-sync-architecture.md) before exposing live PostgreSQL apply in production, especially around enum/custom type limitations and destructive-change confirmations.
