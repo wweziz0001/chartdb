@@ -18,6 +18,7 @@ import type {
     PersistedDiagramCollaborationState,
     PersistedDiagramEditSession,
     PersistedSharingSettings,
+    PersistedUserSummary,
     ResourceAccess,
     SharingAccess,
     SharingScope,
@@ -116,8 +117,28 @@ export interface StorageContext {
         params: {
             scope: SharingScope;
             access: SharingAccess;
+            expiresAt?: string | null;
             rotateLinkToken?: boolean;
         }
+    ) => Promise<PersistedSharingSettings>;
+    searchShareableUsers: (query: string) => Promise<PersistedUserSummary[]>;
+    addProjectSharingUser: (
+        projectId: string,
+        params: {
+            userId: string;
+            access: SharingAccess;
+        }
+    ) => Promise<PersistedSharingSettings>;
+    updateProjectSharingUser: (
+        projectId: string,
+        userId: string,
+        params: {
+            access: SharingAccess;
+        }
+    ) => Promise<PersistedSharingSettings>;
+    removeProjectSharingUser: (
+        projectId: string,
+        userId: string
     ) => Promise<PersistedSharingSettings>;
     deleteProject: (projectId: string) => Promise<void>;
     listProjectDiagrams: (
@@ -141,8 +162,27 @@ export interface StorageContext {
         params: {
             scope: SharingScope;
             access: SharingAccess;
+            expiresAt?: string | null;
             rotateLinkToken?: boolean;
         }
+    ) => Promise<PersistedSharingSettings>;
+    addDiagramSharingUser: (
+        diagramId: string,
+        params: {
+            userId: string;
+            access: SharingAccess;
+        }
+    ) => Promise<PersistedSharingSettings>;
+    updateDiagramSharingUser: (
+        diagramId: string,
+        userId: string,
+        params: {
+            access: SharingAccess;
+        }
+    ) => Promise<PersistedSharingSettings>;
+    removeDiagramSharingUser: (
+        diagramId: string,
+        userId: string
     ) => Promise<PersistedSharingSettings>;
     saveDiagram: (params: {
         diagramId: string;
@@ -347,12 +387,19 @@ export const storageInitialValue: StorageContext = {
     updateProject: emptyFn,
     getProjectSharing: emptyFn,
     updateProjectSharing: emptyFn,
+    searchShareableUsers: emptyFn,
+    addProjectSharingUser: emptyFn,
+    updateProjectSharingUser: emptyFn,
+    removeProjectSharingUser: emptyFn,
     deleteProject: emptyFn,
     listProjectDiagrams: emptyFn,
     getSavedDiagram: emptyFn,
     updateSavedDiagram: emptyFn,
     getDiagramSharing: emptyFn,
     updateDiagramSharing: emptyFn,
+    addDiagramSharingUser: emptyFn,
+    updateDiagramSharingUser: emptyFn,
+    removeDiagramSharingUser: emptyFn,
     saveDiagram: emptyFn,
     activateDiagramSession: emptyFn,
     getDiagramSessionState: emptyFn,

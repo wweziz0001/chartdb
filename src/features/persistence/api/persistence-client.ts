@@ -153,10 +153,25 @@ export interface PersistedDiagramCollaborationEvent {
 }
 
 export interface PersistedSharingSettings {
+    owner: PersistedUserSummary | null;
+    people: PersistedSharingParticipant[];
+    generalAccess: PersistedGeneralAccessSettings;
+}
+
+export interface PersistedSharingParticipant {
+    user: PersistedUserSummary;
+    access: SharingAccess;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface PersistedGeneralAccessSettings {
     scope: SharingScope;
     access: SharingAccess;
     sharePath: string | null;
     shareUpdatedAt: string | null;
+    expiresAt: string | null;
+    isExpired: boolean;
 }
 
 export interface SharedProjectResponse {
@@ -191,7 +206,13 @@ export interface PersistedDiagramUpdateInput {
 export interface PersistedSharingUpdateInput {
     scope: SharingScope;
     access: SharingAccess;
+    expiresAt?: string | null;
     rotateLinkToken?: boolean;
+}
+
+export interface PersistedSharingUserInput {
+    userId: string;
+    access: SharingAccess;
 }
 
 export interface PersistedCreateDiagramSessionInput {
@@ -320,6 +341,17 @@ export const persistenceClient = {
         requestJson<{ ok: boolean }>(`/api/projects/${projectId}`, {
             method: 'DELETE',
         }),
+    searchShareableUsers: async (query: string) => {
+        const params = new URLSearchParams();
+        const normalizedQuery = query.trim();
+        if (normalizedQuery) {
+            params.set('query', normalizedQuery);
+        }
+
+        return requestJson<{ items: PersistedUserSummary[] }>(
+            `/api/sharing/users${params.size > 0 ? `?${params.toString()}` : ''}`
+        );
+    },
     getProjectSharing: async (projectId: string) =>
         requestJson<{ sharing: PersistedSharingSettings }>(
             `/api/projects/${projectId}/sharing`
@@ -333,6 +365,36 @@ export const persistenceClient = {
             {
                 method: 'PATCH',
                 body: JSON.stringify(payload),
+            }
+        ),
+    addProjectSharingUser: async (
+        projectId: string,
+        payload: PersistedSharingUserInput
+    ) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/projects/${projectId}/sharing/people`,
+            {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            }
+        ),
+    updateProjectSharingUser: async (
+        projectId: string,
+        userId: string,
+        payload: Pick<PersistedSharingUserInput, 'access'>
+    ) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/projects/${projectId}/sharing/people/${userId}`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
+    removeProjectSharingUser: async (projectId: string, userId: string) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/projects/${projectId}/sharing/people/${userId}`,
+            {
+                method: 'DELETE',
             }
         ),
     listProjectDiagrams: async (
@@ -432,6 +494,36 @@ export const persistenceClient = {
             {
                 method: 'PATCH',
                 body: JSON.stringify(payload),
+            }
+        ),
+    addDiagramSharingUser: async (
+        diagramId: string,
+        payload: PersistedSharingUserInput
+    ) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/diagrams/${diagramId}/sharing/people`,
+            {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            }
+        ),
+    updateDiagramSharingUser: async (
+        diagramId: string,
+        userId: string,
+        payload: Pick<PersistedSharingUserInput, 'access'>
+    ) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/diagrams/${diagramId}/sharing/people/${userId}`,
+            {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            }
+        ),
+    removeDiagramSharingUser: async (diagramId: string, userId: string) =>
+        requestJson<{ sharing: PersistedSharingSettings }>(
+            `/api/diagrams/${diagramId}/sharing/people/${userId}`,
+            {
+                method: 'DELETE',
             }
         ),
     getSharedProject: async (projectId: string, shareToken: string) =>

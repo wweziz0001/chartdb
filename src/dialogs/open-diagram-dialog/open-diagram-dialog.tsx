@@ -50,6 +50,7 @@ import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { BaseDialogProps } from '../common/base-dialog-props';
+import { useSharingDialogApi } from '@/features/persistence/hooks/use-sharing-dialog-api';
 import { DiagramRowActionsMenu } from './diagram-row-actions-menu/diagram-row-actions-menu';
 import { SharingSettingsDialog } from './sharing-settings-dialog';
 
@@ -92,15 +93,12 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
         listProjects,
         createProject,
         updateProject,
-        getProjectSharing,
-        updateProjectSharing,
         deleteProject,
         listProjectDiagrams,
         updateSavedDiagram,
-        getDiagramSharing,
-        updateDiagramSharing,
         deleteDiagram,
     } = useStorage();
+    const sharingApi = useSharingDialogApi();
     const { showAlert } = useAlert();
     const { diagramId: currentDiagramId, loadDiagram } = useChartDB();
     const [collections, setCollections] = useState<SavedCollection[]>([]);
@@ -685,7 +683,9 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                     : t('open_diagram_dialog.sharing.authenticated_view');
             }
 
-            return t('open_diagram_dialog.sharing.link_view');
+            return access === 'edit'
+                ? 'Anyone with the link can edit'
+                : t('open_diagram_dialog.sharing.link_view');
         },
         [t]
     );
@@ -1307,16 +1307,12 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                     }
                 }}
                 subject={sharingSubject}
-                loadSharing={async (subject) =>
-                    subject.type === 'project'
-                        ? await getProjectSharing(subject.id)
-                        : await getDiagramSharing(subject.id)
-                }
-                saveSharing={async (subject, params) =>
-                    subject.type === 'project'
-                        ? await updateProjectSharing(subject.id, params)
-                        : await updateDiagramSharing(subject.id, params)
-                }
+                loadSharing={sharingApi.loadSharing}
+                searchUsers={sharingApi.searchUsers}
+                addPerson={sharingApi.addPerson}
+                updatePerson={sharingApi.updatePerson}
+                removePerson={sharingApi.removePerson}
+                updateGeneralAccess={sharingApi.updateGeneralAccess}
                 onSaved={async () => {
                     await fetchLibrary(normalizedSearchTerm);
                     if (selectedProjectId) {

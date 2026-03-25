@@ -9,6 +9,7 @@ import { MenuIcon } from 'lucide-react';
 import { SchemaSyncToolbarButton } from '@/features/schema-sync/components/schema-sync-toolbar-button';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { Link } from 'react-router-dom';
+import { CurrentDiagramShareButton } from './current-diagram-share-button';
 
 export interface TopNavbarMobileProps {}
 
@@ -55,6 +56,7 @@ export const TopNavbarMobile: React.FC<TopNavbarMobileProps> = () => {
 
                     <div className="flex items-center gap-2">
                         <SchemaSyncToolbarButton />
+                        <CurrentDiagramShareButton />
                         {isAdmin ? (
                             <Button asChild size="sm" variant="outline">
                                 <Link to="/admin">Admin</Link>
