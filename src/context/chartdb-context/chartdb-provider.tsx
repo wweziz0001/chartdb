@@ -2051,28 +2051,6 @@ export const ChartDBProvider: React.FC<
             ]
         );
 
-    const refreshDiagramFromRemote = useCallback(async () => {
-        if (!diagramId || applyingRemoteRefreshRef.current) {
-            return;
-        }
-
-        applyingRemoteRefreshRef.current = true;
-
-        try {
-            const nextDiagram = await storageDB.getDiagram(
-                diagramId,
-                FULL_DIAGRAM_LOAD_OPTIONS
-            );
-            if (nextDiagram) {
-                const savedDiagram = await storageDB.getSavedDiagram(diagramId);
-                setDiagramAccess(savedDiagram?.access);
-                loadDiagramFromData(nextDiagram);
-            }
-        } finally {
-            applyingRemoteRefreshRef.current = false;
-        }
-    }, [diagramId, loadDiagramFromData, storageDB]);
-
     const updateDiagramData: ChartDBContext['updateDiagramData'] = useCallback(
         async (diagram, options) => {
             const st = options?.forceUpdateStorage ? storageDB : db;
@@ -2083,6 +2061,36 @@ export const ChartDBProvider: React.FC<
         [db, storageDB, loadDiagramFromData]
     );
 
+    const applyAuthoritativeDiagramState = useCallback(
+        async (targetDiagramId: string) => {
+            const [nextDiagram, savedDiagram] = await Promise.all([
+                storageDB.getDiagram(
+                    targetDiagramId,
+                    FULL_DIAGRAM_LOAD_OPTIONS
+                ),
+                storageDB.getSavedDiagram(targetDiagramId),
+            ]);
+
+            setDiagramAccess(savedDiagram?.access);
+
+            if (nextDiagram) {
+                loadDiagramFromData(nextDiagram);
+            }
+
+            return {
+                diagram: nextDiagram,
+                savedDiagram,
+            };
+        },
+        [loadDiagramFromData, storageDB]
+    );
+
+    const getSessionModeForAccess = useCallback(
+        (access?: ResourceAccess) =>
+            readonlyProp || hasDiff || access === 'view' ? 'view' : 'edit',
+        [hasDiff, readonlyProp]
+    );
+
     const loadDiagram: ChartDBContext['loadDiagram'] = useCallback(
         async (diagramId: string) => {
             if (diagramSession?.session.diagramId) {
@@ -2091,18 +2099,11 @@ export const ChartDBProvider: React.FC<
                 );
             }
 
-            const diagram = await storageDB.getDiagram(diagramId, {
-                ...FULL_DIAGRAM_LOAD_OPTIONS,
-            });
-            const savedDiagram = await storageDB.getSavedDiagram(diagramId);
-            const sessionMode =
-                readonlyProp || hasDiff || savedDiagram?.access === 'view'
-                    ? 'view'
-                    : 'edit';
+            const { diagram, savedDiagram } =
+                await applyAuthoritativeDiagramState(diagramId);
+            const sessionMode = getSessionModeForAccess(savedDiagram?.access);
 
             if (diagram) {
-                setDiagramAccess(savedDiagram?.access);
-                loadDiagramFromData(diagram);
                 try {
                     const nextSession = await storageDB.activateDiagramSession({
                         diagramId,
@@ -2145,8 +2146,27 @@ export const ChartDBProvider: React.FC<
 
             return diagram;
         },
-        [diagramSession, hasDiff, loadDiagramFromData, readonlyProp, storageDB]
+        [
+            applyAuthoritativeDiagramState,
+            diagramSession,
+            getSessionModeForAccess,
+            storageDB,
+        ]
     );
+
+    const refreshDiagramFromRemote = useCallback(async () => {
+        if (!diagramId || applyingRemoteRefreshRef.current) {
+            return;
+        }
+
+        applyingRemoteRefreshRef.current = true;
+
+        try {
+            await applyAuthoritativeDiagramState(diagramId);
+        } finally {
+            applyingRemoteRefreshRef.current = false;
+        }
+    }, [applyAuthoritativeDiagramState, diagramId]);
 
     const diagramSessionId = diagramSession?.session.id;
     const diagramSessionStatus = diagramSession?.session.status;
