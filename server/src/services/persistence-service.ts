@@ -149,6 +149,8 @@ const resolveDiagramPresenceIdentity = (
     return `session:${session.id}`;
 };
 
+const DIAGRAM_SESSION_STALE_TTL_MS = 45_000;
+
 const PRESENCE_COLORS = [
     '#2563eb',
     '#f97316',
@@ -852,6 +854,14 @@ export class PersistenceService {
         const payload = updateDiagramSessionSchema.parse(input);
         const now = new Date().toISOString();
         const shouldClose = payload.close || payload.status === 'closed';
+        if (session.status === 'closed' && !shouldClose) {
+            throw new AppError(
+                'Diagram edit session has already been closed.',
+                409,
+                'DIAGRAM_SESSION_CLOSED'
+            );
+        }
+
         const nextSession: DiagramSessionRecord = {
             ...session,
             status: shouldClose ? 'closed' : (payload.status ?? session.status),
@@ -2189,6 +2199,7 @@ export class PersistenceService {
     }
 
     private countActiveDiagramSessions(diagramId: string) {
+        this.pruneStaleDiagramSessions(diagramId);
         return new Set(
             this.repository
                 .listDiagramSessions(diagramId)
@@ -2198,9 +2209,41 @@ export class PersistenceService {
     }
 
     private getPresenceParticipants(diagramId: string) {
+        this.pruneStaleDiagramSessions(diagramId);
         return (
             this.options.collaborationBroker?.listParticipants(diagramId) ?? []
         );
+    }
+
+    private pruneStaleDiagramSessions(diagramId: string) {
+        const sessions = this.repository.listDiagramSessions(diagramId);
+        const now = Date.now();
+
+        for (const session of sessions) {
+            if (session.status === 'closed') {
+                continue;
+            }
+
+            const lastHeartbeatAt = Date.parse(session.lastHeartbeatAt);
+            if (
+                Number.isFinite(lastHeartbeatAt) &&
+                now - lastHeartbeatAt <= DIAGRAM_SESSION_STALE_TTL_MS
+            ) {
+                continue;
+            }
+
+            const closedAt = new Date(now).toISOString();
+            this.repository.putDiagramSession({
+                ...session,
+                status: 'closed',
+                updatedAt: closedAt,
+                closedAt,
+            });
+            this.options.collaborationBroker?.removeParticipant(
+                diagramId,
+                session.id
+            );
+        }
     }
 
     private getPresenceColor(seed: string) {

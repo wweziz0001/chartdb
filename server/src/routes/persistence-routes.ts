@@ -277,7 +277,13 @@ export const registerPersistenceRoutes = (
             reply.raw.write(': keep-alive\n\n');
         }, 15000);
 
+        let isCleanedUp = false;
         const cleanup = () => {
+            if (isCleanedUp) {
+                return;
+            }
+
+            isCleanedUp = true;
             clearInterval(heartbeat);
             unsubscribe();
             context.persistenceService.unregisterDiagramPresence(
@@ -286,8 +292,12 @@ export const registerPersistenceRoutes = (
             );
         };
 
-        request.raw.on('close', cleanup);
+        reply.raw.on('close', cleanup);
+        reply.raw.on('error', cleanup);
         request.raw.on('aborted', cleanup);
+        request.raw.on('close', cleanup);
+        request.raw.socket?.on('close', cleanup);
+        request.raw.socket?.on('end', cleanup);
     });
 
     app.patch('/api/diagrams/:id/sessions/:sessionId', async (request) => {
