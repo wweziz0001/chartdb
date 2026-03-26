@@ -415,6 +415,20 @@ const openEventStream = async (url: string, cookie: string) =>
         request.end();
     });
 
+const waitForStreamEvent = async (
+    stream: {
+        nextEvent: () => Promise<CollaborationStreamEvent>;
+    },
+    eventName: CollaborationStreamEvent['event']
+) => {
+    while (true) {
+        const event = await stream.nextEvent();
+        if (event.event === eventName) {
+            return event;
+        }
+    }
+};
+
 afterEach(() => {
     while (tempDirs.length > 0) {
         const dir = tempDirs.pop();
@@ -607,7 +621,7 @@ describe('collaboration routes', () => {
         expect(ownerSnapshot.data.collaboration.presence.participants).toEqual([
             expect.objectContaining({
                 sessionId: ownerSession.session.id,
-                userId: 'default-user',
+                displayName: 'Owner',
             }),
         ]);
 
@@ -701,11 +715,6 @@ describe('collaboration routes', () => {
             diagramId,
             ownerCookie
         );
-        const memberSession = await createDiagramSession(
-            app,
-            diagramId,
-            memberCookie
-        );
 
         const baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
         const ownerStream = await openEventStream(
@@ -714,8 +723,17 @@ describe('collaboration routes', () => {
         );
         await ownerStream.nextEvent();
 
-        const ownerSessionEvent = await ownerStream.nextEvent();
+        const memberSession = await createDiagramSession(
+            app,
+            diagramId,
+            memberCookie
+        );
+        const ownerSessionEvent = await waitForStreamEvent(
+            ownerStream,
+            'session'
+        );
         expect(ownerSessionEvent.event).toBe('session');
+        expect(ownerSessionEvent.data.sessionId).toBe(memberSession.session.id);
 
         const memberStream = await openEventStream(
             `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${memberSession.session.id}`,
@@ -723,7 +741,10 @@ describe('collaboration routes', () => {
         );
         await memberStream.nextEvent();
 
-        const ownerPresenceJoin = await ownerStream.nextEvent();
+        const ownerPresenceJoin = await waitForStreamEvent(
+            ownerStream,
+            'presence'
+        );
         expect(ownerPresenceJoin.event).toBe('presence');
 
         const cursorResponse = await app.inject({
@@ -741,7 +762,10 @@ describe('collaboration routes', () => {
         });
         expect(cursorResponse.statusCode).toBe(200);
 
-        const ownerCursorEvent = await ownerStream.nextEvent();
+        const ownerCursorEvent = await waitForStreamEvent(
+            ownerStream,
+            'presence'
+        );
         expect(ownerCursorEvent.event).toBe('presence');
         expect(ownerCursorEvent.data.sessionId).toBe(memberSession.session.id);
         expect(
@@ -760,7 +784,10 @@ describe('collaboration routes', () => {
 
         await memberStream.close();
 
-        const ownerPresenceLeave = await ownerStream.nextEvent();
+        const ownerPresenceLeave = await waitForStreamEvent(
+            ownerStream,
+            'presence'
+        );
         expect(ownerPresenceLeave.event).toBe('presence');
         expect(
             ownerPresenceLeave.data.collaboration.presence.participants
@@ -772,6 +799,258 @@ describe('collaboration routes', () => {
             ])
         );
 
+        await ownerStream.close();
+        await app.close();
+    });
+
+    it('replaces stale participant presence and cursors when the same user reconnects', async () => {
+        const env = createAuthEnv();
+        const repository = new AppRepository(env.appDbPath);
+        const app = buildApp({
+            env,
+            appRepository: repository,
+        });
+
+        const ownerCookie = await login(
+            app,
+            'owner@example.com',
+            'super-secret-password'
+        );
+        const { diagramId } = await createSharedDiagramFixture(
+            app,
+            ownerCookie
+        );
+        const firstSession = await createDiagramSession(
+            app,
+            diagramId,
+            ownerCookie
+        );
+
+        const baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
+        const firstStream = await openEventStream(
+            `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${firstSession.session.id}`,
+            ownerCookie
+        );
+        const firstSnapshot = await firstStream.nextEvent();
+        expect(firstSnapshot.event).toBe('snapshot');
+        expect(firstSnapshot.data.collaboration.presence.participants).toEqual([
+            expect.objectContaining({
+                sessionId: firstSession.session.id,
+            }),
+        ]);
+
+        const firstCursorResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/${diagramId}/sessions/${firstSession.session.id}/presence`,
+            headers: {
+                cookie: ownerCookie,
+            },
+            payload: {
+                cursor: {
+                    x: 48,
+                    y: 64,
+                },
+            },
+        });
+        expect(firstCursorResponse.statusCode).toBe(200);
+
+        const firstCursorEvent = await waitForStreamEvent(
+            firstStream,
+            'presence'
+        );
+        expect(
+            firstCursorEvent.data.collaboration.presence.participants
+        ).toEqual([
+            expect.objectContaining({
+                sessionId: firstSession.session.id,
+                cursor: expect.objectContaining({
+                    x: 48,
+                    y: 64,
+                }),
+            }),
+        ]);
+
+        const secondSession = await createDiagramSession(
+            app,
+            diagramId,
+            ownerCookie
+        );
+        const secondSessionEvent = await waitForStreamEvent(
+            firstStream,
+            'session'
+        );
+        expect(secondSessionEvent.data.sessionId).toBe(
+            secondSession.session.id
+        );
+        expect(secondSessionEvent.data.collaboration.activeSessionCount).toBe(
+            1
+        );
+
+        const secondStream = await openEventStream(
+            `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${secondSession.session.id}`,
+            ownerCookie
+        );
+        const secondSnapshot = await secondStream.nextEvent();
+        expect(secondSnapshot.event).toBe('snapshot');
+        expect(secondSnapshot.data.collaboration.activeSessionCount).toBe(1);
+        expect(secondSnapshot.data.collaboration.presence.participants).toEqual(
+            [
+                expect.objectContaining({
+                    sessionId: secondSession.session.id,
+                    cursor: null,
+                }),
+            ]
+        );
+
+        const replacementPresenceEvent = await waitForStreamEvent(
+            firstStream,
+            'presence'
+        );
+        expect(
+            replacementPresenceEvent.data.collaboration.presence.participants
+        ).toEqual([
+            expect.objectContaining({
+                sessionId: secondSession.session.id,
+                cursor: null,
+            }),
+        ]);
+        expect(
+            replacementPresenceEvent.data.collaboration.presence.participants
+        ).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    sessionId: firstSession.session.id,
+                }),
+            ])
+        );
+
+        const staleCursorResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/${diagramId}/sessions/${firstSession.session.id}/presence`,
+            headers: {
+                cookie: ownerCookie,
+            },
+            payload: {
+                cursor: {
+                    x: 256,
+                    y: 192,
+                },
+            },
+        });
+        expect(staleCursorResponse.statusCode).toBe(200);
+        expect(
+            staleCursorResponse.json().collaboration.presence.participants
+        ).toEqual([
+            expect.objectContaining({
+                sessionId: secondSession.session.id,
+                cursor: null,
+            }),
+        ]);
+
+        await secondStream.close();
+        await firstStream.close();
+        await app.close();
+    });
+
+    it('prunes stale participant presence and cursor state after heartbeat expiry', async () => {
+        const env = createAuthEnv();
+        const repository = new AppRepository(env.appDbPath);
+        const app = buildApp({
+            env,
+            appRepository: repository,
+        });
+        repository.putUserAuthRecord(createMemberUser());
+
+        const ownerCookie = await login(
+            app,
+            'owner@example.com',
+            'super-secret-password'
+        );
+        const memberCookie = await login(
+            app,
+            'member@example.com',
+            'member-password'
+        );
+        const { diagramId } = await createSharedDiagramFixture(
+            app,
+            ownerCookie
+        );
+        const ownerSession = await createDiagramSession(
+            app,
+            diagramId,
+            ownerCookie
+        );
+
+        const baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
+        const ownerStream = await openEventStream(
+            `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${ownerSession.session.id}`,
+            ownerCookie
+        );
+        await ownerStream.nextEvent();
+
+        const memberSession = await createDiagramSession(
+            app,
+            diagramId,
+            memberCookie
+        );
+        await waitForStreamEvent(ownerStream, 'session');
+
+        const memberStream = await openEventStream(
+            `${baseUrl}/api/diagrams/${diagramId}/events?sessionId=${memberSession.session.id}`,
+            memberCookie
+        );
+        await memberStream.nextEvent();
+        await waitForStreamEvent(ownerStream, 'presence');
+
+        const cursorResponse = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/${diagramId}/sessions/${memberSession.session.id}/presence`,
+            headers: {
+                cookie: memberCookie,
+            },
+            payload: {
+                cursor: {
+                    x: 144,
+                    y: 72,
+                },
+            },
+        });
+        expect(cursorResponse.statusCode).toBe(200);
+        await waitForStreamEvent(ownerStream, 'presence');
+
+        const staleMemberSession = repository.getDiagramSession(
+            diagramId,
+            memberSession.session.id
+        );
+        expect(staleMemberSession).toBeDefined();
+        repository.putDiagramSession({
+            ...staleMemberSession!,
+            lastHeartbeatAt: '2000-01-01T00:00:00.000Z',
+        });
+
+        const ownerHeartbeat = await app.inject({
+            method: 'PATCH',
+            url: `/api/diagrams/${diagramId}/sessions/${ownerSession.session.id}`,
+            headers: {
+                cookie: ownerCookie,
+            },
+            payload: {
+                status: 'active',
+                lastSeenDocumentVersion:
+                    ownerSession.collaboration.document.version,
+            },
+        });
+        expect(ownerHeartbeat.statusCode).toBe(200);
+        expect(ownerHeartbeat.json().collaboration.activeSessionCount).toBe(1);
+        expect(
+            ownerHeartbeat.json().collaboration.presence.participants
+        ).toEqual([
+            expect.objectContaining({
+                sessionId: ownerSession.session.id,
+            }),
+        ]);
+
+        await memberStream.close();
         await ownerStream.close();
         await app.close();
     });
