@@ -1233,7 +1233,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 const existingSession =
                     diagramSessionsRef.current.get(diagramId);
 
-                if (!existingSession || existingSession.session.id !== sessionId) {
+                if (
+                    !existingSession ||
+                    existingSession.session.id !== sessionId
+                ) {
                     return existingSession;
                 }
 

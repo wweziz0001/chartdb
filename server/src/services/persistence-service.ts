@@ -796,9 +796,8 @@ export class PersistenceService {
             return;
         }
 
-        const currentParticipants = this.options.collaborationBroker.listParticipants(
-            diagramId
-        );
+        const currentParticipants =
+            this.options.collaborationBroker.listParticipants(diagramId);
         const wasPresent = currentParticipants.some(
             (participant) => participant.sessionId === sessionId
         );
@@ -806,7 +805,10 @@ export class PersistenceService {
             return;
         }
 
-        this.options.collaborationBroker.removeParticipant(diagramId, sessionId);
+        this.options.collaborationBroker.removeParticipant(
+            diagramId,
+            sessionId
+        );
         this.publishPresenceEvent(diagram, sessionId);
     }
 
@@ -2178,7 +2180,9 @@ export class PersistenceService {
     }
 
     private getPresenceParticipants(diagramId: string) {
-        return this.options.collaborationBroker?.listParticipants(diagramId) ?? [];
+        return (
+            this.options.collaborationBroker?.listParticipants(diagramId) ?? []
+        );
     }
 
     private getPresenceColor(seed: string) {

@@ -658,7 +658,9 @@ describe('collaboration routes', () => {
 
         const ownerPresenceLeave = await ownerStream.nextEvent();
         expect(ownerPresenceLeave.event).toBe('presence');
-        expect(ownerPresenceLeave.data.sessionId).toBe(memberSession.session.id);
+        expect(ownerPresenceLeave.data.sessionId).toBe(
+            memberSession.session.id
+        );
         expect(
             ownerPresenceLeave.data.collaboration.presence.participants
         ).toEqual([

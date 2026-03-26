@@ -1,9 +1,7 @@
-const SHARED_DIAGRAM_PATH =
-    /^\/shared\/diagrams\/[^/]+\/(?<shareToken>[^/]+)$/;
+const SHARED_DIAGRAM_PATH = /^\/shared\/diagrams\/[^/]+\/(?<shareToken>[^/]+)$/;
 const SHARED_PROJECT_DIAGRAM_PATH =
     /^\/shared\/projects\/[^/]+\/(?<shareToken>[^/]+)\/diagrams\/[^/]+$/;
-const SHARED_PROJECT_PATH =
-    /^\/shared\/projects\/[^/]+\/(?<shareToken>[^/]+)$/;
+const SHARED_PROJECT_PATH = /^\/shared\/projects\/[^/]+\/(?<shareToken>[^/]+)$/;
 
 export const getCurrentShareToken = () => {
     if (typeof window === 'undefined') {

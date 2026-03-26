@@ -623,7 +623,8 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                                 : sharing.generalAccess
                                                         .expiresAt
                                                   ? `Expires ${new Date(
-                                                        sharing.generalAccess.expiresAt
+                                                        sharing.generalAccess
+                                                            .expiresAt
                                                     ).toLocaleString()}`
                                                   : 'No expiration'}
                                         </p>
@@ -1096,7 +1097,8 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                 <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
                                     <p>{pendingGeneralAccessSummary}</p>
                                     <p className="mt-2 text-xs">
-                                        Current status: {generalAccessStatusMessage}
+                                        Current status:{' '}
+                                        {generalAccessStatusMessage}
                                     </p>
                                 </div>
 

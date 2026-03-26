@@ -14,7 +14,9 @@ export const resolveRequestShareToken = (request: FastifyRequest) => {
         return fromHeader;
     }
 
-    const query = request.query as { shareToken?: string | string[] } | undefined;
+    const query = request.query as
+        | { shareToken?: string | string[] }
+        | undefined;
     return readShareToken(query?.shareToken);
 };
 

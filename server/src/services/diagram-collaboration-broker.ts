@@ -105,8 +105,11 @@ export class DiagramCollaborationBroker {
         diagramId: string,
         participant: Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'>
     ) {
-        const diagramParticipants = this.participants.get(diagramId) ?? new Map();
-        const existingParticipant = diagramParticipants.get(participant.sessionId);
+        const diagramParticipants =
+            this.participants.get(diagramId) ?? new Map();
+        const existingParticipant = diagramParticipants.get(
+            participant.sessionId
+        );
         diagramParticipants.set(participant.sessionId, {
             ...participant,
             joinedAt: existingParticipant?.joinedAt ?? participant.lastSeenAt,
