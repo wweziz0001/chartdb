@@ -7,6 +7,7 @@ import {
     LogOut,
     Menu,
     Settings,
+    Shield,
     Trash2,
     UserRound,
     X,
@@ -137,6 +138,14 @@ const DashboardShellFrame = () => {
         { icon: UserRound, label: 'Profile', to: '/profile' },
         { icon: Settings, label: 'Settings', to: '/settings' },
     ];
+    const adminLink =
+        enabled && user?.role === 'admin'
+            ? {
+                  icon: Shield,
+                  label: 'Admin',
+                  to: '/admin',
+              }
+            : null;
 
     const sidebar = (
         <div className="flex h-full flex-col">
@@ -228,6 +237,13 @@ const DashboardShellFrame = () => {
                                 to={item.to}
                             />
                         ))}
+                        {adminLink ? (
+                            <PrimaryNavLink
+                                icon={adminLink.icon}
+                                label={adminLink.label}
+                                to={adminLink.to}
+                            />
+                        ) : null}
                     </div>
                 </div>
             </div>
