@@ -6,20 +6,26 @@ import { useRedoUndoStack } from '@/hooks/use-redo-undo-stack';
 import { useStorage } from '@/hooks/use-storage';
 import type { Diagram } from '@/lib/domain/diagram';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 export const useDiagramLoader = (options?: { enabled?: boolean }) => {
     const [initialDiagram, setInitialDiagram] = useState<Diagram | undefined>();
     const { diagramId } = useParams<{ diagramId: string }>();
+    const [searchParams] = useSearchParams();
     const { config } = useConfig();
     const { loadDiagram, currentDiagram } = useChartDB();
     const { resetRedoStack, resetUndoStack } = useRedoUndoStack();
     const { showLoader, hideLoader } = useFullScreenLoader();
-    const { openCreateDiagramDialog, openOpenDiagramDialog } = useDialog();
+    const {
+        openCreateDiagramDialog,
+        openImportDiagramDialog,
+        openOpenDiagramDialog,
+    } = useDialog();
     const navigate = useNavigate();
     const { listDiagrams, listProjects } = useStorage();
 
     const currentDiagramLoadingRef = useRef<string | undefined>(undefined);
+    const loaderStateKey = `${diagramId ?? ''}:${searchParams.get('action') ?? ''}`;
 
     useEffect(() => {
         if (options?.enabled === false) {
@@ -51,7 +57,23 @@ export const useDiagramLoader = (options?: { enabled?: boolean }) => {
                 hideLoader();
 
                 return;
-            } else if (!diagramId && config.defaultDiagramId) {
+            }
+
+            const requestedAction = searchParams.get('action');
+            if (!diagramId && requestedAction) {
+                if (requestedAction === 'create') {
+                    openCreateDiagramDialog();
+                } else if (requestedAction === 'import') {
+                    openImportDiagramDialog({});
+                } else if (requestedAction === 'open') {
+                    openOpenDiagramDialog({ canClose: false });
+                }
+
+                navigate('/workspace', { replace: true });
+                return;
+            }
+
+            if (!diagramId && config.defaultDiagramId) {
                 const diagram = await loadDiagram(config.defaultDiagramId);
                 if (diagram) {
                     navigate(`/diagrams/${config.defaultDiagramId}`);
@@ -75,12 +97,12 @@ export const useDiagramLoader = (options?: { enabled?: boolean }) => {
         };
 
         if (
-            currentDiagramLoadingRef.current === (diagramId ?? '') &&
+            currentDiagramLoadingRef.current === loaderStateKey &&
             currentDiagramLoadingRef.current !== undefined
         ) {
             return;
         }
-        currentDiagramLoadingRef.current = diagramId ?? '';
+        currentDiagramLoadingRef.current = loaderStateKey;
 
         loadDefaultDiagram();
     }, [
@@ -91,12 +113,15 @@ export const useDiagramLoader = (options?: { enabled?: boolean }) => {
         listDiagrams,
         listProjects,
         loadDiagram,
+        loaderStateKey,
         resetRedoStack,
         resetUndoStack,
         hideLoader,
         showLoader,
         currentDiagram?.id,
+        openImportDiagramDialog,
         openOpenDiagramDialog,
+        searchParams,
         options?.enabled,
     ]);
 
