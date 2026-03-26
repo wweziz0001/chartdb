@@ -1325,6 +1325,11 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             async (diagramId) => {
                 const existingSession =
                     diagramSessionsRef.current.get(diagramId);
+                const existingTimer = syncTimersRef.current.get(diagramId);
+                if (existingTimer !== undefined) {
+                    window.clearTimeout(existingTimer);
+                    syncTimersRef.current.delete(diagramId);
+                }
                 storeDiagramSessionState(diagramId, undefined);
 
                 if (!existingSession) {
@@ -1367,6 +1372,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
             syncInFlightRef.current.add(diagramId);
             const sessionState = diagramSessionsRef.current.get(diagramId);
+            if (!sessionState) {
+                syncInFlightRef.current.delete(diagramId);
+                return;
+            }
 
             try {
                 const diagram = await readLocalDiagram(
