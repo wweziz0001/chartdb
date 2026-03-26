@@ -34,7 +34,7 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
     const inputRef = React.useRef<HTMLInputElement>(null);
     const { openOpenDiagramDialog } = useDialog();
     const activeCollaboratorCount =
-        diagramSession?.collaboration.activeSessionCount ?? 0;
+        diagramSession?.collaboration.presence.participants.length ?? 0;
 
     useEffect(() => {
         setEditedDiagramName(diagramName);

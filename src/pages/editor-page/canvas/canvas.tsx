@@ -121,6 +121,7 @@ import { filterTable } from '@/lib/domain/diagram-filter/filter';
 import { defaultSchemas } from '@/lib/data/default-schemas';
 import { useDiff } from '@/context/diff-context/use-diff';
 import { useClickAway } from 'react-use';
+import { LivePresenceCursors } from './live-presence-cursors';
 
 const HIGHLIGHTED_EDGE_Z_INDEX = 1;
 const DEFAULT_EDGE_Z_INDEX = 0;
@@ -299,6 +300,7 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
         updateNote,
         highlightedCustomType,
         highlightCustomTypeId,
+        updateCursorPresence,
     } = useChartDB();
     const { showSidePanel } = useLayout();
     const { effectiveTheme } = useTheme();
@@ -1474,26 +1476,53 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
     // Handle mouse move to update cursor position for floating edge
     const { screenToFlowPosition } = useReactFlow();
     const rafIdRef = useRef<number>();
+    const lastPresenceEmitRef = useRef(0);
+    const lastPresencePositionRef = useRef<{
+        x: number;
+        y: number;
+    } | null>(null);
     const handleMouseMove = useCallback(
         (event: React.MouseEvent) => {
-            if (tempFloatingEdge) {
-                // Throttle using requestAnimationFrame
-                if (rafIdRef.current) {
-                    return;
+            // Throttle using requestAnimationFrame
+            if (rafIdRef.current) {
+                return;
+            }
+
+            rafIdRef.current = requestAnimationFrame(() => {
+                const position = screenToFlowPosition({
+                    x: event.clientX,
+                    y: event.clientY,
+                });
+
+                if (tempFloatingEdge) {
+                    setCursorPosition(position);
                 }
 
-                rafIdRef.current = requestAnimationFrame(() => {
-                    const position = screenToFlowPosition({
-                        x: event.clientX,
-                        y: event.clientY,
-                    });
-                    setCursorPosition(position);
-                    rafIdRef.current = undefined;
-                });
-            }
+                const previousPosition = lastPresencePositionRef.current;
+                const hasMeaningfulMovement =
+                    !previousPosition ||
+                    Math.abs(previousPosition.x - position.x) > 1 ||
+                    Math.abs(previousPosition.y - position.y) > 1;
+
+                if (
+                    hasMeaningfulMovement &&
+                    Date.now() - lastPresenceEmitRef.current > 50
+                ) {
+                    lastPresenceEmitRef.current = Date.now();
+                    lastPresencePositionRef.current = position;
+                    void updateCursorPresence(position);
+                }
+
+                rafIdRef.current = undefined;
+            });
         },
-        [tempFloatingEdge, screenToFlowPosition]
+        [screenToFlowPosition, tempFloatingEdge, updateCursorPresence]
     );
+
+    const handleMouseLeave = useCallback(() => {
+        lastPresencePositionRef.current = null;
+        void updateCursorPresence(null);
+    }, [updateCursorPresence]);
 
     // Cleanup RAF on unmount
     useEffect(() => {
@@ -1501,8 +1530,20 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
             if (rafIdRef.current) {
                 cancelAnimationFrame(rafIdRef.current);
             }
+
+            void updateCursorPresence(null);
         };
-    }, []);
+    }, [updateCursorPresence]);
+
+    useEffect(() => {
+        const clearCursorPresence = () => {
+            lastPresencePositionRef.current = null;
+            void updateCursorPresence(null);
+        };
+
+        window.addEventListener('blur', clearCursorPresence);
+        return () => window.removeEventListener('blur', clearCursorPresence);
+    }, [updateCursorPresence]);
 
     // Handle escape key to cancel floating edge creation, close relationship node, and close relationship popover
     useEffect(() => {
@@ -1618,7 +1659,9 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
                 id="canvas"
                 ref={containerRef}
                 onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
             >
+                <LivePresenceCursors containerRef={containerRef} />
                 <ReactFlow
                     onlyRenderVisibleElements
                     colorMode={effectiveTheme}

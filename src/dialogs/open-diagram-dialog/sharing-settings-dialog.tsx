@@ -27,7 +27,17 @@ import type {
     SharingScope,
 } from '@/features/persistence/api/persistence-client';
 import { cn } from '@/lib/utils';
-import { Copy, Link2, RotateCw, Search, Trash2, UserPlus } from 'lucide-react';
+import {
+    Clock3,
+    Copy,
+    Link2,
+    RotateCw,
+    Search,
+    Shield,
+    Trash2,
+    UserPlus,
+    Users,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type ExpirationPreset = 'never' | '1h' | '1d' | '7d' | 'custom';
@@ -522,6 +532,15 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
     const peopleWithAccess = sharing?.people ?? [];
     const legacyAuthenticatedAccess =
         sharing?.generalAccess.scope === 'authenticated';
+    const generalAccessStatusMessage = sharing
+        ? formatExpirationSummary(
+              sharing.generalAccess.scope === 'authenticated'
+                  ? 'private'
+                  : sharing.generalAccess.scope,
+              sharing.generalAccess.expiresAt,
+              sharing.generalAccess.isExpired
+          )
+        : '';
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -563,27 +582,33 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                             <section className="space-y-3 rounded-xl border bg-card/40 p-4">
                                 <div className="grid gap-3 sm:grid-cols-3">
                                     <div className="rounded-xl border bg-background p-3">
-                                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <Shield className="size-3.5" />
                                             Owner
-                                        </p>
-                                        <p className="mt-1 truncate text-sm font-semibold">
+                                        </div>
+                                        <p className="mt-2 truncate text-sm font-semibold">
                                             {sharing.owner?.displayName ??
                                                 'Unknown owner'}
                                         </p>
                                     </div>
                                     <div className="rounded-xl border bg-background p-3">
-                                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                                            Direct access
-                                        </p>
-                                        <p className="mt-1 text-sm font-semibold">
+                                        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <Users className="size-3.5" />
+                                            People With Access
+                                        </div>
+                                        <p className="mt-2 text-sm font-semibold">
                                             {peopleWithAccess.length} people
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            Direct viewers and editors
                                         </p>
                                     </div>
                                     <div className="rounded-xl border bg-background p-3">
-                                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                                            General access
-                                        </p>
-                                        <p className="mt-1 text-sm font-semibold">
+                                        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <Clock3 className="size-3.5" />
+                                            General Access
+                                        </div>
+                                        <p className="mt-2 text-sm font-semibold">
                                             {sharing.generalAccess.scope ===
                                             'link'
                                                 ? `Anyone with the link (${getAccessLabel(
@@ -591,6 +616,16 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                                           .access
                                                   )})`
                                                 : 'Restricted'}
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {sharing.generalAccess.isExpired
+                                                ? 'The previous link has expired.'
+                                                : sharing.generalAccess
+                                                        .expiresAt
+                                                  ? `Expires ${new Date(
+                                                        sharing.generalAccess.expiresAt
+                                                    ).toLocaleString()}`
+                                                  : 'No expiration'}
                                         </p>
                                     </div>
                                 </div>
@@ -1059,7 +1094,10 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                 ) : null}
 
                                 <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-                                    {pendingGeneralAccessSummary}
+                                    <p>{pendingGeneralAccessSummary}</p>
+                                    <p className="mt-2 text-xs">
+                                        Current status: {generalAccessStatusMessage}
+                                    </p>
                                 </div>
 
                                 <div className="space-y-2">
