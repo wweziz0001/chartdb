@@ -59,6 +59,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                 <LastSaved />
                 <ActiveDiagramParticipants />
                 <CurrentDiagramShareButton />
+                <Button asChild variant="outline" size="sm">
+                    <Link to="/">Library</Link>
+                </Button>
                 {enabled ? (
                     <>
                         <span className="max-w-40 truncate text-sm text-muted-foreground">

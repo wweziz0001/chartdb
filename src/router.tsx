@@ -5,8 +5,126 @@ import type { TemplatePageLoaderData } from './pages/template-page/template-page
 import type { TemplatesPageLoaderData } from './pages/templates-page/templates-page';
 import { getTemplatesAndAllTags } from './templates-data/template-utils';
 
-const routes: RouteObject[] = [
-    ...['', 'diagrams/:diagramId'].map((path) => ({
+export const routes: RouteObject[] = [
+    {
+        path: '',
+        async lazy() {
+            const { DashboardShellLayout } =
+                await import('./pages/dashboard-page/dashboard-shell-layout');
+
+            return {
+                element: <DashboardShellLayout />,
+            };
+        },
+        children: [
+            {
+                index: true,
+                async lazy() {
+                    const { AllDiagramsPage } =
+                        await import('./pages/dashboard-page/all-diagrams-page');
+
+                    return {
+                        element: <AllDiagramsPage />,
+                    };
+                },
+            },
+            {
+                path: 'shared-with-me',
+                async lazy() {
+                    const { SharedWithMePage } =
+                        await import('./pages/dashboard-page/shared-with-me-page');
+
+                    return {
+                        element: <SharedWithMePage />,
+                    };
+                },
+            },
+            {
+                path: 'unorganized',
+                async lazy() {
+                    const { UnorganizedPage } =
+                        await import('./pages/dashboard-page/unorganized-page');
+
+                    return {
+                        element: <UnorganizedPage />,
+                    };
+                },
+            },
+            {
+                path: 'collections',
+                async lazy() {
+                    const { CollectionsPage } =
+                        await import('./pages/dashboard-page/collections-page');
+
+                    return {
+                        element: <CollectionsPage />,
+                    };
+                },
+            },
+            {
+                path: 'collections/:collectionId',
+                async lazy() {
+                    const { CollectionDetailPage } =
+                        await import('./pages/dashboard-page/collection-detail-page');
+
+                    return {
+                        element: <CollectionDetailPage />,
+                    };
+                },
+            },
+            {
+                path: 'trash',
+                async lazy() {
+                    const { TrashPage } =
+                        await import('./pages/dashboard-page/trash-page');
+
+                    return {
+                        element: <TrashPage />,
+                    };
+                },
+            },
+            {
+                path: 'profile',
+                async lazy() {
+                    const { ProfilePage } =
+                        await import('./pages/dashboard-page/profile-page');
+
+                    return {
+                        element: <ProfilePage />,
+                    };
+                },
+            },
+            {
+                path: 'settings',
+                async lazy() {
+                    const { SettingsPage } =
+                        await import('./pages/dashboard-page/settings-page');
+
+                    return {
+                        element: <SettingsPage />,
+                    };
+                },
+            },
+            {
+                path: 'admin',
+                async lazy() {
+                    const { AdminRouteGuard } =
+                        await import('./features/admin/components/admin-route-guard');
+                    const { AdminPage } =
+                        await import('./pages/admin-page/admin-page');
+
+                    return {
+                        element: (
+                            <AdminRouteGuard>
+                                <AdminPage />
+                            </AdminRouteGuard>
+                        ),
+                    };
+                },
+            },
+        ],
+    },
+    ...['workspace', 'diagrams/:diagramId'].map((path) => ({
         path,
         async lazy() {
             const { EditorPage } =
@@ -160,22 +278,6 @@ const routes: RouteObject[] = [
         },
     },
     {
-        path: 'admin',
-        async lazy() {
-            const { AdminRouteGuard } =
-                await import('./features/admin/components/admin-route-guard');
-            const { AdminPage } = await import('./pages/admin-page/admin-page');
-
-            return {
-                element: (
-                    <AdminRouteGuard>
-                        <AdminPage />
-                    </AdminRouteGuard>
-                ),
-            };
-        },
-    },
-    {
         path: '*',
         async lazy() {
             const { NotFoundPage } =
@@ -187,4 +289,6 @@ const routes: RouteObject[] = [
     },
 ];
 
-export const router = createBrowserRouter(routes);
+export const createAppRouter = () => createBrowserRouter(routes);
+
+export const router = createAppRouter();
