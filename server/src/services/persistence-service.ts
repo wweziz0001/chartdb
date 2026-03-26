@@ -48,6 +48,10 @@ import {
     type DiagramParticipantCursorState,
     type DiagramPresenceParticipant,
 } from './diagram-collaboration-broker.js';
+import {
+    isDiagramSessionActive,
+    resolveDiagramPresenceIdentity,
+} from './diagram-presence.js';
 
 export interface BootstrapResult {
     user: AppUserRecord;
@@ -837,6 +841,14 @@ export class PersistenceService {
         const payload = updateDiagramSessionSchema.parse(input);
         const now = new Date().toISOString();
         const shouldClose = payload.close || payload.status === 'closed';
+        if (session.status === 'closed' && !shouldClose) {
+            throw new AppError(
+                'Diagram edit session has already been closed.',
+                409,
+                'DIAGRAM_SESSION_CLOSED'
+            );
+        }
+
         const nextSession: DiagramSessionRecord = {
             ...session,
             status: shouldClose ? 'closed' : (payload.status ?? session.status),
@@ -2174,15 +2186,43 @@ export class PersistenceService {
     }
 
     private countActiveDiagramSessions(diagramId: string) {
-        return this.repository
-            .listDiagramSessions(diagramId)
-            .filter((session) => session.status !== 'closed').length;
+        this.pruneStaleDiagramSessions(diagramId);
+        return new Set(
+            this.repository
+                .listDiagramSessions(diagramId)
+                .filter((session) => isDiagramSessionActive(session))
+                .map((session) => resolveDiagramPresenceIdentity(session))
+        ).size;
     }
 
     private getPresenceParticipants(diagramId: string) {
+        this.pruneStaleDiagramSessions(diagramId);
         return (
             this.options.collaborationBroker?.listParticipants(diagramId) ?? []
         );
+    }
+
+    private pruneStaleDiagramSessions(diagramId: string) {
+        const sessions = this.repository.listDiagramSessions(diagramId);
+        const now = Date.now();
+
+        for (const session of sessions) {
+            if (isDiagramSessionActive(session, now)) {
+                continue;
+            }
+
+            const closedAt = new Date(now).toISOString();
+            this.repository.putDiagramSession({
+                ...session,
+                status: 'closed',
+                updatedAt: closedAt,
+                closedAt,
+            });
+            this.options.collaborationBroker?.removeParticipant(
+                diagramId,
+                session.id
+            );
+        }
     }
 
     private getPresenceColor(seed: string) {
@@ -2208,7 +2248,9 @@ export class PersistenceService {
         session: DiagramSessionRecord,
         actor?: AppUserRecord | null,
         options?: { shareToken?: string | null }
-    ): Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'> {
+    ): Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'> & {
+        presenceKey: string;
+    } {
         const persistedUser =
             actor ??
             (session.ownerUserId
@@ -2225,9 +2267,14 @@ export class PersistenceService {
             fallbackDisplayName;
         const email = persistedUser?.email ?? null;
         const userId = persistedUser?.id ?? null;
-        const colorSeed = userId ?? session.id;
+        const colorSeed = userId ?? session.clientId ?? session.id;
 
         return {
+            presenceKey: resolveDiagramPresenceIdentity({
+                id: session.id,
+                ownerUserId: userId ?? session.ownerUserId,
+                clientId: session.clientId,
+            }),
             sessionId: session.id,
             userId,
             displayName,
