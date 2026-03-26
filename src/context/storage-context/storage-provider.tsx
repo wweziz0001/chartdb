@@ -32,6 +32,7 @@ import {
     serializeDiagram,
     type PersistedDiagramRecord,
 } from '@/features/persistence/api/persistence-client';
+import { getCollaborationClientId } from '@/features/persistence/collaboration-client-id';
 import { getCurrentShareToken } from '@/features/persistence/share-token';
 import { cloneDiagram } from '@/lib/clone';
 import { RequestError } from '@/lib/api/request';
@@ -1277,7 +1278,9 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                     diagramId,
                     {
                         mode,
-                        clientId: `${window.location.pathname}:${diagramId}`,
+                        clientId:
+                            getCollaborationClientId() ??
+                            `${window.location.pathname}:${diagramId}`,
                         userAgent: navigator.userAgent,
                     }
                 );

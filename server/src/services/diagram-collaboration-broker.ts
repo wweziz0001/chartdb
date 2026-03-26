@@ -23,6 +23,10 @@ export interface DiagramPresenceParticipant {
     cursor: DiagramParticipantCursorState | null;
 }
 
+interface DiagramPresenceParticipantEntry extends DiagramPresenceParticipant {
+    presenceKey: string;
+}
+
 export interface DiagramCollaborationEventState {
     document: {
         version: number;
@@ -63,7 +67,7 @@ export class DiagramCollaborationBroker {
     >();
     private readonly participants = new Map<
         string,
-        Map<string, DiagramPresenceParticipant>
+        Map<string, DiagramPresenceParticipantEntry>
     >();
 
     subscribe(diagramId: string, listener: DiagramCollaborationListener) {
@@ -103,13 +107,25 @@ export class DiagramCollaborationBroker {
 
     upsertParticipant(
         diagramId: string,
-        participant: Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'>
+        participant: Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'> & {
+            presenceKey: string;
+        }
     ) {
         const diagramParticipants =
             this.participants.get(diagramId) ?? new Map();
         const existingParticipant = diagramParticipants.get(
             participant.sessionId
         );
+
+        for (const [sessionId, currentParticipant] of diagramParticipants) {
+            if (
+                sessionId !== participant.sessionId &&
+                currentParticipant.presenceKey === participant.presenceKey
+            ) {
+                diagramParticipants.delete(sessionId);
+            }
+        }
+
         diagramParticipants.set(participant.sessionId, {
             ...participant,
             joinedAt: existingParticipant?.joinedAt ?? participant.lastSeenAt,
@@ -159,12 +175,18 @@ export class DiagramCollaborationBroker {
             return [];
         }
 
-        return [...diagramParticipants.values()].sort((left, right) => {
-            if (left.joinedAt !== right.joinedAt) {
-                return left.joinedAt.localeCompare(right.joinedAt);
-            }
+        return [...diagramParticipants.values()]
+            .sort((left, right) => {
+                if (left.joinedAt !== right.joinedAt) {
+                    return left.joinedAt.localeCompare(right.joinedAt);
+                }
 
-            return left.displayName.localeCompare(right.displayName);
-        });
+                return left.displayName.localeCompare(right.displayName);
+            })
+            .map((entry) => {
+                const { presenceKey, ...participant } = entry;
+                void presenceKey;
+                return participant;
+            });
     }
 }

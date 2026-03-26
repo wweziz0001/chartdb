@@ -134,6 +134,21 @@ export interface DiagramEditSessionResponse {
     };
 }
 
+const resolveDiagramPresenceIdentity = (
+    session: Pick<DiagramSessionRecord, 'id' | 'ownerUserId' | 'clientId'>
+) => {
+    if (session.ownerUserId) {
+        return `user:${session.ownerUserId}`;
+    }
+
+    const clientId = session.clientId?.trim();
+    if (clientId) {
+        return `client:${clientId}`;
+    }
+
+    return `session:${session.id}`;
+};
+
 const PRESENCE_COLORS = [
     '#2563eb',
     '#f97316',
@@ -2174,9 +2189,12 @@ export class PersistenceService {
     }
 
     private countActiveDiagramSessions(diagramId: string) {
-        return this.repository
-            .listDiagramSessions(diagramId)
-            .filter((session) => session.status !== 'closed').length;
+        return new Set(
+            this.repository
+                .listDiagramSessions(diagramId)
+                .filter((session) => session.status !== 'closed')
+                .map((session) => resolveDiagramPresenceIdentity(session))
+        ).size;
     }
 
     private getPresenceParticipants(diagramId: string) {
@@ -2208,7 +2226,9 @@ export class PersistenceService {
         session: DiagramSessionRecord,
         actor?: AppUserRecord | null,
         options?: { shareToken?: string | null }
-    ): Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'> {
+    ): Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'> & {
+        presenceKey: string;
+    } {
         const persistedUser =
             actor ??
             (session.ownerUserId
@@ -2225,9 +2245,14 @@ export class PersistenceService {
             fallbackDisplayName;
         const email = persistedUser?.email ?? null;
         const userId = persistedUser?.id ?? null;
-        const colorSeed = userId ?? session.id;
+        const colorSeed = userId ?? session.clientId ?? session.id;
 
         return {
+            presenceKey: resolveDiagramPresenceIdentity({
+                id: session.id,
+                ownerUserId: userId ?? session.ownerUserId,
+                clientId: session.clientId,
+            }),
             sessionId: session.id,
             userId,
             displayName,
