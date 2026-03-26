@@ -10,6 +10,7 @@ import { SchemaSyncToolbarButton } from '@/features/schema-sync/components/schem
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { Link } from 'react-router-dom';
 import { CurrentDiagramShareButton } from './current-diagram-share-button';
+import { ActiveDiagramParticipants } from './active-diagram-participants';
 
 export interface TopNavbarMobileProps {}
 
@@ -56,6 +57,7 @@ export const TopNavbarMobile: React.FC<TopNavbarMobileProps> = () => {
 
                     <div className="flex items-center gap-2">
                         <SchemaSyncToolbarButton />
+                        <ActiveDiagramParticipants />
                         <CurrentDiagramShareButton />
                         {isAdmin ? (
                             <Button asChild size="sm" variant="outline">

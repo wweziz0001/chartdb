@@ -27,7 +27,17 @@ import type {
     SharingScope,
 } from '@/features/persistence/api/persistence-client';
 import { cn } from '@/lib/utils';
-import { Copy, Link2, RotateCw, Search, Trash2, UserPlus } from 'lucide-react';
+import {
+    Clock3,
+    Copy,
+    Link2,
+    RotateCw,
+    Search,
+    Shield,
+    Trash2,
+    UserPlus,
+    Users,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type ExpirationPreset = 'never' | '1h' | '1d' | '7d' | 'custom';
@@ -187,6 +197,18 @@ const formatExpirationSummary = (
         expiresAt
     ).toLocaleString()}.`;
 };
+
+const formatAccessTimestamp = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return 'Recently updated';
+    }
+
+    return parsed.toLocaleString();
+};
+
+const getAccessLabel = (access: SharingAccess) =>
+    access === 'edit' ? 'Editor' : 'Viewer';
 
 export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
     open,
@@ -360,6 +382,24 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
         [selectedUserId, userResults]
     );
 
+    const pendingGeneralAccessExpiresAt = useMemo(
+        () =>
+            generalAccessScope === 'link'
+                ? buildExpirationTimestamp(expirationPreset, customExpiration)
+                : null,
+        [customExpiration, expirationPreset, generalAccessScope]
+    );
+
+    const pendingGeneralAccessSummary = useMemo(
+        () =>
+            formatExpirationSummary(
+                generalAccessScope,
+                pendingGeneralAccessExpiresAt,
+                false
+            ),
+        [generalAccessScope, pendingGeneralAccessExpiresAt]
+    );
+
     const applySharingUpdate = async (
         nextSharingPromise: Promise<PersistedSharingSettings>
     ) => {
@@ -492,6 +532,15 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
     const peopleWithAccess = sharing?.people ?? [];
     const legacyAuthenticatedAccess =
         sharing?.generalAccess.scope === 'authenticated';
+    const generalAccessStatusMessage = sharing
+        ? formatExpirationSummary(
+              sharing.generalAccess.scope === 'authenticated'
+                  ? 'private'
+                  : sharing.generalAccess.scope,
+              sharing.generalAccess.expiresAt,
+              sharing.generalAccess.isExpired
+          )
+        : '';
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -531,6 +580,57 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                     ) : (
                         <>
                             <section className="space-y-3 rounded-xl border bg-card/40 p-4">
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                    <div className="rounded-xl border bg-background p-3">
+                                        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <Shield className="size-3.5" />
+                                            Owner
+                                        </div>
+                                        <p className="mt-2 truncate text-sm font-semibold">
+                                            {sharing.owner?.displayName ??
+                                                'Unknown owner'}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl border bg-background p-3">
+                                        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <Users className="size-3.5" />
+                                            People With Access
+                                        </div>
+                                        <p className="mt-2 text-sm font-semibold">
+                                            {peopleWithAccess.length} people
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            Direct viewers and editors
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl border bg-background p-3">
+                                        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <Clock3 className="size-3.5" />
+                                            General Access
+                                        </div>
+                                        <p className="mt-2 text-sm font-semibold">
+                                            {sharing.generalAccess.scope ===
+                                            'link'
+                                                ? `Anyone with the link (${getAccessLabel(
+                                                      sharing.generalAccess
+                                                          .access
+                                                  )})`
+                                                : 'Restricted'}
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {sharing.generalAccess.isExpired
+                                                ? 'The previous link has expired.'
+                                                : sharing.generalAccess
+                                                        .expiresAt
+                                                  ? `Expires ${new Date(
+                                                        sharing.generalAccess
+                                                            .expiresAt
+                                                    ).toLocaleString()}`
+                                                  : 'No expiration'}
+                                        </p>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <h3 className="text-sm font-semibold">
                                         Add people
@@ -589,15 +689,23 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                                                 )
                                                             }
                                                         >
-                                                            <span className="truncate font-medium">
-                                                                {
-                                                                    user.displayName
-                                                                }
-                                                            </span>
-                                                            <span className="truncate text-xs text-muted-foreground">
-                                                                {user.email ??
-                                                                    'No email'}
-                                                            </span>
+                                                            <div className="min-w-0">
+                                                                <span className="block truncate font-medium">
+                                                                    {
+                                                                        user.displayName
+                                                                    }
+                                                                </span>
+                                                                <span className="block truncate text-xs text-muted-foreground">
+                                                                    {user.email ??
+                                                                        'No email'}
+                                                                </span>
+                                                            </div>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="shrink-0"
+                                                            >
+                                                                Add
+                                                            </Badge>
                                                         </button>
                                                     ))}
                                                 </div>
@@ -649,12 +757,20 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                 </div>
 
                                 {selectedUser ? (
-                                    <p className="text-xs text-muted-foreground">
-                                        Selected: {selectedUser.displayName}
-                                        {selectedUser.email
-                                            ? ` (${selectedUser.email})`
-                                            : ''}
-                                    </p>
+                                    <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed bg-background px-3 py-2">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium">
+                                                {selectedUser.displayName}
+                                            </p>
+                                            <p className="truncate text-xs text-muted-foreground">
+                                                {selectedUser.email ??
+                                                    'No email'}
+                                            </p>
+                                        </div>
+                                        <Badge variant="secondary">
+                                            {getAccessLabel(personAccess)}
+                                        </Badge>
+                                    </div>
                                 ) : null}
                             </section>
 
@@ -725,10 +841,26 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                                                     .displayName
                                                             }
                                                         </p>
-                                                        <p className="truncate text-xs text-muted-foreground">
-                                                            {person.user
-                                                                .email ??
-                                                                'No email'}
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <p className="truncate text-xs text-muted-foreground">
+                                                                {person.user
+                                                                    .email ??
+                                                                    'No email'}
+                                                            </p>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="text-[10px] uppercase tracking-[0.14em]"
+                                                            >
+                                                                {getAccessLabel(
+                                                                    person.access
+                                                                )}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="mt-1 text-[11px] text-muted-foreground">
+                                                            Updated{' '}
+                                                            {formatAccessTimestamp(
+                                                                person.updatedAt
+                                                            )}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -815,95 +947,132 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                     </div>
                                 ) : null}
 
-                                <div className="grid gap-3 md:grid-cols-3">
-                                    <div className="space-y-2">
-                                        <span className="text-xs font-medium text-muted-foreground">
-                                            Access mode
-                                        </span>
-                                        <Select
-                                            value={generalAccessScope}
-                                            onValueChange={(value) =>
-                                                setGeneralAccessScope(
-                                                    value as SharingScope
-                                                )
+                                <div className="space-y-3">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                        Access mode
+                                    </span>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <button
+                                            type="button"
+                                            className={cn(
+                                                'rounded-xl border p-3 text-left transition-colors',
+                                                generalAccessScope === 'private'
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'bg-background hover:border-primary/40'
+                                            )}
+                                            onClick={() =>
+                                                setGeneralAccessScope('private')
                                             }
                                         >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="private">
-                                                    Restricted
-                                                </SelectItem>
-                                                <SelectItem value="link">
-                                                    Anyone with the link
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                            <p className="text-sm font-semibold">
+                                                Restricted
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                Only people you add directly can
+                                                open this item.
+                                            </p>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={cn(
+                                                'rounded-xl border p-3 text-left transition-colors',
+                                                generalAccessScope === 'link'
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'bg-background hover:border-primary/40'
+                                            )}
+                                            onClick={() =>
+                                                setGeneralAccessScope('link')
+                                            }
+                                        >
+                                            <p className="text-sm font-semibold">
+                                                Anyone with the link
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                Use a shareable link with a role
+                                                and optional expiration.
+                                            </p>
+                                        </button>
                                     </div>
+                                </div>
 
+                                <div className="grid gap-3 md:grid-cols-2">
                                     <div className="space-y-2">
                                         <span className="text-xs font-medium text-muted-foreground">
                                             Link role
                                         </span>
-                                        <Select
-                                            value={generalAccessRole}
-                                            onValueChange={(value) =>
-                                                setGeneralAccessRole(
-                                                    value as SharingAccess
-                                                )
-                                            }
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="view">
-                                                    Viewer
-                                                </SelectItem>
-                                                <SelectItem value="edit">
-                                                    Editor
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {(
+                                                [
+                                                    'view',
+                                                    'edit',
+                                                ] as SharingAccess[]
+                                            ).map((access) => (
+                                                <Button
+                                                    key={access}
+                                                    type="button"
+                                                    variant={
+                                                        generalAccessRole ===
+                                                        access
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    className="justify-start"
+                                                    onClick={() =>
+                                                        setGeneralAccessRole(
+                                                            access
+                                                        )
+                                                    }
+                                                    disabled={
+                                                        generalAccessScope !==
+                                                        'link'
+                                                    }
+                                                >
+                                                    {getAccessLabel(access)}
+                                                </Button>
+                                            ))}
+                                        </div>
                                     </div>
 
                                     <div className="space-y-2">
                                         <span className="text-xs font-medium text-muted-foreground">
                                             Expiration
                                         </span>
-                                        <Select
-                                            value={expirationPreset}
-                                            onValueChange={(value) =>
-                                                setExpirationPreset(
-                                                    value as ExpirationPreset
-                                                )
-                                            }
-                                            disabled={
-                                                generalAccessScope !== 'link'
-                                            }
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="never">
-                                                    Never
-                                                </SelectItem>
-                                                <SelectItem value="1h">
-                                                    1 hour
-                                                </SelectItem>
-                                                <SelectItem value="1d">
-                                                    1 day
-                                                </SelectItem>
-                                                <SelectItem value="7d">
-                                                    7 days
-                                                </SelectItem>
-                                                <SelectItem value="custom">
-                                                    Custom
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                                            {(
+                                                [
+                                                    ['never', 'Never'],
+                                                    ['1h', '1 hour'],
+                                                    ['1d', '1 day'],
+                                                    ['7d', '7 days'],
+                                                    ['custom', 'Custom'],
+                                                ] satisfies Array<
+                                                    [ExpirationPreset, string]
+                                                >
+                                            ).map(([preset, label]) => (
+                                                <Button
+                                                    key={preset}
+                                                    type="button"
+                                                    variant={
+                                                        expirationPreset ===
+                                                        preset
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    className="justify-start"
+                                                    onClick={() =>
+                                                        setExpirationPreset(
+                                                            preset
+                                                        )
+                                                    }
+                                                    disabled={
+                                                        generalAccessScope !==
+                                                        'link'
+                                                    }
+                                                >
+                                                    {label}
+                                                </Button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -926,11 +1095,11 @@ export const SharingSettingsDialog: React.FC<SharingSettingsDialogProps> = ({
                                 ) : null}
 
                                 <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-                                    {formatExpirationSummary(
-                                        sharing.generalAccess.scope,
-                                        sharing.generalAccess.expiresAt,
-                                        sharing.generalAccess.isExpired
-                                    )}
+                                    <p>{pendingGeneralAccessSummary}</p>
+                                    <p className="mt-2 text-xs">
+                                        Current status:{' '}
+                                        {generalAccessStatusMessage}
+                                    </p>
                                 </div>
 
                                 <div className="space-y-2">

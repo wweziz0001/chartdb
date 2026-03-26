@@ -11,6 +11,7 @@ import { Button } from '@/components/button/button';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { Link } from 'react-router-dom';
 import { CurrentDiagramShareButton } from './current-diagram-share-button';
+import { ActiveDiagramParticipants } from './active-diagram-participants';
 
 export interface TopNavbarProps {}
 
@@ -56,6 +57,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
             <div className="hidden flex-1 items-center justify-end gap-2 sm:flex">
                 <SchemaSyncToolbarButton />
                 <LastSaved />
+                <ActiveDiagramParticipants />
+                <CurrentDiagramShareButton />
                 {enabled ? (
                     <>
                         <span className="max-w-40 truncate text-sm text-muted-foreground">
@@ -63,7 +66,6 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                                 user?.email ??
                                 'Authenticated'}
                         </span>
-                        <CurrentDiagramShareButton />
                         {isAdmin ? (
                             <Button asChild variant="outline" size="sm">
                                 <Link to="/admin">Admin</Link>

@@ -32,6 +32,7 @@ import {
     serializeDiagram,
     type PersistedDiagramRecord,
 } from '@/features/persistence/api/persistence-client';
+import { getCurrentShareToken } from '@/features/persistence/share-token';
 import { cloneDiagram } from '@/lib/clone';
 import { RequestError } from '@/lib/api/request';
 import type {
@@ -1058,6 +1059,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             }
 
             remoteInitPromiseRef.current = (async () => {
+                const shareToken = getCurrentShareToken();
                 try {
                     const bootstrap = await persistenceClient.bootstrap();
                     remoteProjectIdRef.current = bootstrap.defaultProject.id;
@@ -1090,11 +1092,15 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
                     remoteReadyRef.current = true;
                 } catch (error) {
-                    remoteReadyRef.current = false;
-                    console.warn(
-                        'ChartDB server persistence is unavailable; continuing with local browser storage only.',
-                        error
-                    );
+                    if (shareToken) {
+                        remoteReadyRef.current = true;
+                    } else {
+                        remoteReadyRef.current = false;
+                        console.warn(
+                            'ChartDB server persistence is unavailable; continuing with local browser storage only.',
+                            error
+                        );
+                    }
                 } finally {
                     remoteInitializedRef.current = true;
                 }
@@ -1193,7 +1199,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
     const updateDiagramSessionAwareness: StorageContext['updateDiagramSessionAwareness'] =
         useCallback(
-            (diagramId, awareness) => {
+            (diagramId, collaboration) => {
                 const existingSession =
                     diagramSessionsRef.current.get(diagramId);
                 if (!existingSession) {
@@ -1202,13 +1208,44 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
                 return storeDiagramSessionState(diagramId, {
                     ...existingSession,
-                    collaboration: {
-                        ...existingSession.collaboration,
-                        activeSessionCount: awareness.activeSessionCount,
-                    },
+                    collaboration,
                 });
             },
             [storeDiagramSessionState]
+        );
+
+    const updateDiagramSessionPresence: StorageContext['updateDiagramSessionPresence'] =
+        useCallback(
+            async ({ diagramId, sessionId, cursor }) => {
+                await ensureRemotePersistenceReady();
+                if (!remoteReadyRef.current) {
+                    return diagramSessionsRef.current.get(diagramId);
+                }
+
+                const response =
+                    await persistenceClient.updateDiagramSessionPresence(
+                        diagramId,
+                        sessionId,
+                        {
+                            cursor,
+                        }
+                    );
+                const existingSession =
+                    diagramSessionsRef.current.get(diagramId);
+
+                if (
+                    !existingSession ||
+                    existingSession.session.id !== sessionId
+                ) {
+                    return existingSession;
+                }
+
+                return storeDiagramSessionState(diagramId, {
+                    ...existingSession,
+                    collaboration: response.collaboration,
+                });
+            },
+            [ensureRemotePersistenceReady, storeDiagramSessionState]
         );
 
     const hasPendingDiagramSync: StorageContext['hasPendingDiagramSync'] =
@@ -1321,7 +1358,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     const syncDiagramToRemote = useCallback(
         async (diagramId: string): Promise<void> => {
             await ensureRemotePersistenceReady();
-            if (!remoteReadyRef.current || !remoteProjectIdRef.current) {
+            if (!remoteReadyRef.current) {
                 return;
             }
 
@@ -1338,13 +1375,16 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 }
 
                 const savedDiagram = await db.saved_diagrams.get(diagramId);
+                const targetProjectId =
+                    savedDiagram?.projectId ?? remoteProjectIdRef.current;
+                if (!targetProjectId) {
+                    return;
+                }
 
                 const response = await persistenceClient.upsertDiagram(
                     diagramId,
                     {
-                        projectId:
-                            savedDiagram?.projectId ??
-                            remoteProjectIdRef.current,
+                        projectId: targetProjectId,
                         description: savedDiagram?.description ?? undefined,
                         sessionId: sessionState?.session.id,
                         baseVersion:
@@ -2780,6 +2820,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 getDiagramSessionState,
                 subscribeToDiagramSessionState,
                 updateDiagramSessionAwareness,
+                updateDiagramSessionPresence,
                 hasPendingDiagramSync,
                 heartbeatDiagramSession,
                 releaseDiagramSession,

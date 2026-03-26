@@ -112,6 +112,30 @@ export interface PersistedDiagramCollaborationState {
     document: PersistedDiagramDocumentState;
     realtime: PersistedDiagramRealtimeCapability;
     activeSessionCount: number;
+    presence: PersistedDiagramPresenceState;
+}
+
+export interface PersistedDiagramParticipantCursor {
+    x: number;
+    y: number;
+    updatedAt: string;
+}
+
+export interface PersistedDiagramPresenceParticipant {
+    sessionId: string;
+    userId: string | null;
+    displayName: string;
+    email: string | null;
+    initials: string;
+    color: string;
+    mode: 'view' | 'edit';
+    joinedAt: string;
+    lastSeenAt: string;
+    cursor: PersistedDiagramParticipantCursor | null;
+}
+
+export interface PersistedDiagramPresenceState {
+    participants: PersistedDiagramPresenceParticipant[];
 }
 
 export interface PersistedDiagramSessionTransport {
@@ -145,7 +169,7 @@ export interface PersistedDiagramSessionResponse {
 }
 
 export interface PersistedDiagramCollaborationEvent {
-    type: 'snapshot' | 'session' | 'document';
+    type: 'snapshot' | 'session' | 'document' | 'presence';
     diagramId: string;
     sessionId: string | null;
     emittedAt: string;
@@ -225,6 +249,13 @@ export interface PersistedUpdateDiagramSessionInput {
     status?: 'active' | 'idle' | 'stale' | 'closed';
     lastSeenDocumentVersion?: number;
     close?: boolean;
+}
+
+export interface PersistedUpdateDiagramSessionPresenceInput {
+    cursor?: {
+        x: number;
+        y: number;
+    } | null;
 }
 
 export interface BootstrapResponse {
@@ -477,6 +508,17 @@ export const persistenceClient = {
                 body: JSON.stringify(payload),
             }
         ),
+    updateDiagramSessionPresence: async (
+        diagramId: string,
+        sessionId: string,
+        payload: PersistedUpdateDiagramSessionPresenceInput
+    ) =>
+        requestJson<{
+            collaboration: PersistedDiagramCollaborationState;
+        }>(`/api/diagrams/${diagramId}/sessions/${sessionId}/presence`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }),
     deleteDiagram: async (diagramId: string) =>
         requestJson<{ ok: boolean }>(`/api/diagrams/${diagramId}`, {
             method: 'DELETE',

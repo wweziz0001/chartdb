@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '@/lib/env';
+import { getCurrentShareToken } from '@/features/persistence/share-token';
 
 export const apiPath = (path: string) =>
     `${API_BASE_URL}${path.startsWith('/api') ? path : `/api${path}`}`;
@@ -26,6 +27,11 @@ export const requestJson = async <T>(
         !headers.has('Content-Type')
     ) {
         headers.set('Content-Type', 'application/json');
+    }
+
+    const shareToken = getCurrentShareToken();
+    if (shareToken && !headers.has('x-chartdb-share-token')) {
+        headers.set('x-chartdb-share-token', shareToken);
     }
 
     const response = await fetch(apiPath(path), {

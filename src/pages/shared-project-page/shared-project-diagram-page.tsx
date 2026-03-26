@@ -22,7 +22,7 @@ export const SharedProjectDiagramPage: React.FC = () => {
         );
     }, [diagramId, projectId, shareToken]);
 
-    const { loading, error, diagram } = useSharedDiagram(loadDiagram);
+    const { loading, error, diagram, record } = useSharedDiagram(loadDiagram);
 
     if (loading) {
         return (
@@ -50,5 +50,10 @@ export const SharedProjectDiagramPage: React.FC = () => {
         );
     }
 
-    return <EditorPage initialDiagram={diagram} readonly />;
+    return (
+        <EditorPage
+            initialDiagram={diagram}
+            readonly={record?.access !== 'edit'}
+        />
+    );
 };

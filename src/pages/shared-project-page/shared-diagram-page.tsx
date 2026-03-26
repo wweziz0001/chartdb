@@ -17,7 +17,7 @@ export const SharedDiagramPage: React.FC = () => {
         return await persistenceClient.getSharedDiagram(diagramId, shareToken);
     }, [diagramId, shareToken]);
 
-    const { loading, error, diagram } = useSharedDiagram(loadDiagram);
+    const { loading, error, diagram, record } = useSharedDiagram(loadDiagram);
 
     if (loading) {
         return (
@@ -45,5 +45,10 @@ export const SharedDiagramPage: React.FC = () => {
         );
     }
 
-    return <EditorPage initialDiagram={diagram} readonly />;
+    return (
+        <EditorPage
+            initialDiagram={diagram}
+            readonly={record?.access !== 'edit'}
+        />
+    );
 };

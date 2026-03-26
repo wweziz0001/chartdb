@@ -12,10 +12,12 @@ export const useSharedDiagram = (
     loading: boolean;
     error: string | null;
     diagram: Diagram | null;
+    record: PersistedDiagramRecord | null;
 } => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [diagram, setDiagram] = useState<Diagram | null>(null);
+    const [record, setRecord] = useState<PersistedDiagramRecord | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -27,6 +29,7 @@ export const useSharedDiagram = (
             try {
                 const response = await load();
                 if (!cancelled) {
+                    setRecord(response);
                     setDiagram(deserializeDiagram(response.diagram));
                 }
             } catch (caughtError) {
@@ -55,6 +58,7 @@ export const useSharedDiagram = (
         loading,
         error,
         diagram,
+        record,
     };
 };
 

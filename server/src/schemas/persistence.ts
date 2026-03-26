@@ -85,10 +85,44 @@ export type DiagramRealtimeCapability = z.infer<
     typeof diagramRealtimeCapabilitySchema
 >;
 
+export const diagramParticipantCursorSchema = z.object({
+    x: z.number(),
+    y: z.number(),
+    updatedAt: z.coerce.date(),
+});
+
+export type DiagramParticipantCursor = z.infer<
+    typeof diagramParticipantCursorSchema
+>;
+
+export const diagramPresenceParticipantSchema = z.object({
+    sessionId: z.string().trim().min(1),
+    userId: z.string().trim().min(1).nullable(),
+    displayName: z.string().trim().min(1),
+    email: z.string().trim().email().nullable(),
+    initials: z.string().trim().min(1).max(4),
+    color: z.string().trim().min(1),
+    mode: diagramSessionModeSchema,
+    joinedAt: z.coerce.date(),
+    lastSeenAt: z.coerce.date(),
+    cursor: diagramParticipantCursorSchema.nullable(),
+});
+
+export type DiagramPresenceParticipant = z.infer<
+    typeof diagramPresenceParticipantSchema
+>;
+
+export const diagramPresenceStateSchema = z.object({
+    participants: z.array(diagramPresenceParticipantSchema),
+});
+
+export type DiagramPresenceState = z.infer<typeof diagramPresenceStateSchema>;
+
 export const diagramCollaborationStateSchema = z.object({
     document: diagramDocumentVersionSchema,
     realtime: diagramRealtimeCapabilitySchema,
     activeSessionCount: z.number().int().min(0),
+    presence: diagramPresenceStateSchema,
 });
 
 export type DiagramCollaborationState = z.infer<
@@ -221,6 +255,16 @@ export const createDiagramSessionSchema = z.object({
     mode: diagramSessionModeSchema.optional().default('edit'),
     clientId: z.string().trim().min(1).max(120).optional(),
     userAgent: z.string().trim().min(1).max(500).optional(),
+});
+
+export const updateDiagramSessionPresenceSchema = z.object({
+    cursor: z
+        .object({
+            x: z.number(),
+            y: z.number(),
+        })
+        .nullable()
+        .optional(),
 });
 
 export const updateDiagramSessionSchema = z

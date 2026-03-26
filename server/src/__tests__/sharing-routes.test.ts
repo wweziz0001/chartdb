@@ -257,6 +257,21 @@ describe('sharing routes', () => {
             })
         );
 
+        const tokenBackedViewerResponse = await app.inject({
+            method: 'GET',
+            url: '/api/diagrams/shared-diagram',
+            headers: {
+                'x-chartdb-share-token': shareToken,
+            },
+        });
+        expect(tokenBackedViewerResponse.statusCode).toBe(200);
+        expect(tokenBackedViewerResponse.json()).toEqual(
+            expect.objectContaining({
+                id: 'shared-diagram',
+                access: 'view',
+            })
+        );
+
         const invalidSharedDiagramResponse = await app.inject({
             method: 'GET',
             url: '/api/shared/diagrams/shared-diagram/not-the-right-token',
@@ -519,6 +534,60 @@ describe('sharing routes', () => {
             })
         );
 
+        const tokenHeaders = {
+            'x-chartdb-share-token': shareToken,
+        };
+
+        const tokenBackedDiagramResponse = await app.inject({
+            method: 'GET',
+            url: '/api/diagrams/link-diagram',
+            headers: tokenHeaders,
+        });
+        expect(tokenBackedDiagramResponse.statusCode).toBe(200);
+        expect(tokenBackedDiagramResponse.json()).toEqual(
+            expect.objectContaining({
+                id: 'link-diagram',
+                access: 'edit',
+            })
+        );
+
+        const sharedEditSessionResponse = await app.inject({
+            method: 'POST',
+            url: '/api/diagrams/link-diagram/sessions',
+            headers: tokenHeaders,
+            payload: {
+                mode: 'edit',
+                clientId: 'anonymous-link-editor',
+                userAgent: 'vitest',
+            },
+        });
+        expect(sharedEditSessionResponse.statusCode).toBe(200);
+
+        const sharedEditSession = sharedEditSessionResponse.json() as {
+            session: {
+                id: string;
+                baseVersion: number;
+            };
+        };
+
+        const tokenBackedUpdateResponse = await app.inject({
+            method: 'PATCH',
+            url: '/api/diagrams/link-diagram',
+            headers: tokenHeaders,
+            payload: {
+                name: 'Edited Through Link',
+                sessionId: sharedEditSession.session.id,
+                baseVersion: sharedEditSession.session.baseVersion,
+            },
+        });
+        expect(tokenBackedUpdateResponse.statusCode).toBe(200);
+        expect(tokenBackedUpdateResponse.json().diagram).toEqual(
+            expect.objectContaining({
+                name: 'Edited Through Link',
+                access: 'edit',
+            })
+        );
+
         const currentDiagram = repository.getDiagram('link-diagram');
         if (!currentDiagram) {
             throw new Error('Expected a persisted diagram record.');
@@ -533,6 +602,13 @@ describe('sharing routes', () => {
             url: `/api/shared/diagrams/link-diagram/${shareToken}`,
         });
         expect(expiredSharedResponse.statusCode).toBe(404);
+
+        const expiredTokenResponse = await app.inject({
+            method: 'GET',
+            url: '/api/diagrams/link-diagram',
+            headers: tokenHeaders,
+        });
+        expect(expiredTokenResponse.statusCode).toBe(404);
 
         const refreshedSharingResponse = await app.inject({
             method: 'GET',

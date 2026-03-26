@@ -48,6 +48,7 @@ import type {
     PersistedDiagramCollaborationEvent,
     ResourceAccess,
 } from '@/features/persistence/api/persistence-client';
+import { getCurrentShareToken } from '@/features/persistence/share-token';
 
 export interface ChartDBProviderProps {
     diagram?: Diagram;
@@ -73,10 +74,14 @@ export const ChartDBProvider: React.FC<
         useRedoUndoStack();
     const { toast, dismiss } = useToast();
 
-    const [diagramId, setDiagramId] = useState('');
-    const [diagramName, setDiagramName] = useState('');
-    const [diagramCreatedAt, setDiagramCreatedAt] = useState<Date>(new Date());
-    const [diagramUpdatedAt, setDiagramUpdatedAt] = useState<Date>(new Date());
+    const [diagramId, setDiagramId] = useState(diagram?.id ?? '');
+    const [diagramName, setDiagramName] = useState(diagram?.name ?? '');
+    const [diagramCreatedAt, setDiagramCreatedAt] = useState<Date>(
+        diagram?.createdAt ?? new Date()
+    );
+    const [diagramUpdatedAt, setDiagramUpdatedAt] = useState<Date>(
+        diagram?.updatedAt ?? new Date()
+    );
     const [diagramSchemaSync, setDiagramSchemaSync] = useState<
         DiagramSchemaSync | undefined
     >(diagram?.schemaSync);
@@ -105,6 +110,7 @@ export const ChartDBProvider: React.FC<
     const applyingRemoteRefreshRef = useRef(false);
     const remoteRefreshTimerRef = useRef<number>();
     const staleToastIdRef = useRef<string>();
+    const initialDiagramLoadRef = useRef<string>();
 
     const { events: diffEvents } = useDiff();
 
@@ -359,6 +365,27 @@ export const ChartDBProvider: React.FC<
         setDiagramUpdatedAt,
         storageDB,
     ]);
+
+    const updateCursorPresence: ChartDBContext['updateCursorPresence'] =
+        useCallback(
+            async (cursor) => {
+                if (!diagramId || !diagramSession?.session.id) {
+                    return;
+                }
+
+                const nextSession =
+                    await storageDB.updateDiagramSessionPresence({
+                        diagramId,
+                        sessionId: diagramSession.session.id,
+                        cursor,
+                    });
+
+                if (nextSession) {
+                    setDiagramSession(nextSession);
+                }
+            },
+            [diagramId, diagramSession?.session.id, storageDB]
+        );
 
     const updateDatabaseType: ChartDBContext['updateDatabaseType'] =
         useCallback(
@@ -2154,6 +2181,25 @@ export const ChartDBProvider: React.FC<
         ]
     );
 
+    useEffect(() => {
+        if (!diagram?.id) {
+            return;
+        }
+
+        if (initialDiagramLoadRef.current === diagram.id) {
+            return;
+        }
+
+        initialDiagramLoadRef.current = diagram.id;
+        loadDiagramFromData(diagram);
+        void loadDiagram(diagram.id).catch((error) => {
+            console.warn('Failed to initialize shared diagram session.', {
+                diagramId: diagram.id,
+                error,
+            });
+        });
+    }, [diagram, loadDiagram, loadDiagramFromData]);
+
     const refreshDiagramFromRemote = useCallback(async () => {
         if (!diagramId || applyingRemoteRefreshRef.current) {
             return;
@@ -2182,6 +2228,10 @@ export const ChartDBProvider: React.FC<
 
         const endpoint = new URL(diagramEventsEndpoint, window.location.origin);
         endpoint.searchParams.set('sessionId', diagramSessionId);
+        const shareToken = getCurrentShareToken();
+        if (shareToken) {
+            endpoint.searchParams.set('shareToken', shareToken);
+        }
 
         const scheduleRemoteRefresh = (attempt = 0) => {
             if (remoteRefreshTimerRef.current !== undefined) {
@@ -2222,9 +2272,14 @@ export const ChartDBProvider: React.FC<
                 return;
             }
 
-            storageDB.updateDiagramSessionAwareness(diagramId, {
-                activeSessionCount: event.collaboration.activeSessionCount,
-            });
+            storageDB.updateDiagramSessionAwareness(
+                diagramId,
+                event.collaboration
+            );
+
+            if (event.type !== 'document') {
+                return;
+            }
 
             if (
                 event.collaboration.document.version <= currentDocumentVersion
@@ -2251,6 +2306,7 @@ export const ChartDBProvider: React.FC<
         eventSource.addEventListener('snapshot', handleEvent);
         eventSource.addEventListener('session', handleEvent);
         eventSource.addEventListener('document', handleEvent);
+        eventSource.addEventListener('presence', handleEvent);
         eventSource.onerror = () => {
             console.warn('Diagram collaboration stream disconnected.', {
                 diagramId,
@@ -2499,6 +2555,7 @@ export const ChartDBProvider: React.FC<
                 deleteDiagram,
                 updateDiagramUpdatedAt,
                 saveDiagram,
+                updateCursorPresence,
                 createTable,
                 addTable,
                 addTables,

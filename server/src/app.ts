@@ -13,6 +13,10 @@ import { registerHealthRoutes } from './routes/health-routes.js';
 import { registerPersistenceRoutes } from './routes/persistence-routes.js';
 import { registerSchemaSyncRoutes } from './routes/schema-sync-routes.js';
 import type { OidcClientProvider } from './services/oidc-provider.js';
+import {
+    isShareTokenApiRoute,
+    resolveRequestShareToken,
+} from './utils/request-share-token.js';
 import { AppError } from './utils/app-error.js';
 
 export const buildApp = (options?: {
@@ -56,11 +60,15 @@ export const buildApp = (options?: {
             requestPath === '/api/auth/oidc/start' ||
             requestPath === '/api/auth/oidc/callback' ||
             requestPath.startsWith('/api/shared/');
+        const isShareTokenAuthorizedRoute =
+            resolveRequestShareToken(request) !== null &&
+            isShareTokenApiRoute(request);
 
         if (
             request.url.startsWith('/api') &&
             context.authService.isEnabled() &&
             !isPublicApiRoute &&
+            !isShareTokenAuthorizedRoute &&
             !request.auth.authenticated
         ) {
             return reply.code(401).send({

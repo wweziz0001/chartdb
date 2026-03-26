@@ -205,10 +205,16 @@ export interface StorageContext {
     ) => () => void;
     updateDiagramSessionAwareness: (
         diagramId: string,
-        awareness: {
-            activeSessionCount: number;
-        }
+        collaboration: PersistedDiagramCollaborationState
     ) => DiagramSessionState | undefined;
+    updateDiagramSessionPresence: (params: {
+        diagramId: string;
+        sessionId: string;
+        cursor?: {
+            x: number;
+            y: number;
+        } | null;
+    }) => Promise<DiagramSessionState | undefined>;
     hasPendingDiagramSync: (diagramId: string) => boolean;
     heartbeatDiagramSession: (params: {
         diagramId: string;
@@ -405,6 +411,7 @@ export const storageInitialValue: StorageContext = {
     getDiagramSessionState: emptyFn,
     subscribeToDiagramSessionState: emptyFn,
     updateDiagramSessionAwareness: emptyFn,
+    updateDiagramSessionPresence: emptyFn,
     hasPendingDiagramSync: () => false,
     heartbeatDiagramSession: emptyFn,
     releaseDiagramSession: emptyFn,

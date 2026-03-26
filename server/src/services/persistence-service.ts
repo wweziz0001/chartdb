@@ -20,6 +20,7 @@ import {
     sharingScopeSchema,
     sharingUserAccessUpdateSchema,
     sharingUserMutationSchema,
+    updateDiagramSessionPresenceSchema,
     updateDiagramSessionSchema,
     updateSharingSchema,
     updateCollectionSchema,
@@ -44,6 +45,8 @@ import { generateId } from '../utils/id.js';
 import {
     type DiagramCollaborationBroker,
     type DiagramCollaborationEvent,
+    type DiagramParticipantCursorState,
+    type DiagramPresenceParticipant,
 } from './diagram-collaboration-broker.js';
 
 export interface BootstrapResult {
@@ -103,6 +106,9 @@ export interface DiagramCollaborationState {
     document: DiagramDocumentState;
     realtime: DiagramRealtimeCapability;
     activeSessionCount: number;
+    presence: {
+        participants: DiagramPresenceParticipant[];
+    };
 }
 
 export interface DiagramEditSessionResponse {
@@ -127,6 +133,17 @@ export interface DiagramEditSessionResponse {
         websocketProtocol: string | null;
     };
 }
+
+const PRESENCE_COLORS = [
+    '#2563eb',
+    '#f97316',
+    '#14b8a6',
+    '#ec4899',
+    '#8b5cf6',
+    '#22c55e',
+    '#eab308',
+    '#ef4444',
+] as const;
 
 const DEFAULT_USER_CONFIG_KEY = 'default_user_id';
 const DEFAULT_PROJECT_CONFIG_KEY = 'default_project_id';
@@ -607,12 +624,16 @@ export class PersistenceService {
         }));
     }
 
-    getDiagram(diagramId: string, actor?: AppUserRecord | null) {
+    getDiagram(
+        diagramId: string,
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
+    ) {
         const diagram = this.repository.getDiagram(diagramId);
         if (!diagram) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
-        const access = this.getDiagramAccess(diagram, actor);
+        const access = this.getDiagramAccess(diagram, actor, options);
         if (!this.canView(access)) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
@@ -622,10 +643,11 @@ export class PersistenceService {
     createDiagramSession(
         diagramId: string,
         input: unknown,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
         const diagram = this.requireDiagram(diagramId);
-        const access = this.getDiagramAccess(diagram, actor);
+        const access = this.getDiagramAccess(diagram, actor, options);
         if (!this.canView(access)) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
@@ -643,7 +665,7 @@ export class PersistenceService {
         const session: DiagramSessionRecord = {
             id: generateId(),
             diagramId: diagram.id,
-            ownerUserId: actor?.id ?? diagram.ownerUserId ?? null,
+            ownerUserId: actor?.id ?? null,
             mode: payload.mode,
             status: 'active',
             clientId: payload.clientId ?? null,
@@ -673,10 +695,11 @@ export class PersistenceService {
     getDiagramSession(
         diagramId: string,
         sessionId: string,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
         const diagram = this.requireDiagram(diagramId);
-        const access = this.getDiagramAccess(diagram, actor);
+        const access = this.getDiagramAccess(diagram, actor, options);
         if (!this.canView(access)) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
@@ -699,10 +722,11 @@ export class PersistenceService {
     assertCanSubscribeToDiagramEvents(
         diagramId: string,
         sessionId: string,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
         const diagram = this.requireDiagram(diagramId);
-        const access = this.getDiagramAccess(diagram, actor);
+        const access = this.getDiagramAccess(diagram, actor, options);
         if (!this.canView(access)) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
@@ -730,14 +754,73 @@ export class PersistenceService {
         };
     }
 
+    registerDiagramPresence(
+        diagramId: string,
+        sessionId: string,
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
+    ) {
+        const snapshot = this.assertCanSubscribeToDiagramEvents(
+            diagramId,
+            sessionId,
+            actor,
+            options
+        );
+        const session = this.repository.getDiagramSession(diagramId, sessionId);
+        if (!session) {
+            throw new AppError(
+                'Diagram session not found.',
+                404,
+                'DIAGRAM_SESSION_NOT_FOUND'
+            );
+        }
+
+        if (this.options.collaborationBroker) {
+            this.options.collaborationBroker.upsertParticipant(
+                diagramId,
+                this.buildPresenceParticipant(session, actor, options)
+            );
+        }
+
+        const diagram = this.requireDiagram(diagramId);
+        this.publishPresenceEvent(diagram, sessionId);
+        return {
+            session: snapshot.session,
+            collaboration: this.toDiagramCollaboration(diagram),
+        };
+    }
+
+    unregisterDiagramPresence(diagramId: string, sessionId: string) {
+        const diagram = this.repository.getDiagram(diagramId);
+        if (!diagram || !this.options.collaborationBroker) {
+            return;
+        }
+
+        const currentParticipants =
+            this.options.collaborationBroker.listParticipants(diagramId);
+        const wasPresent = currentParticipants.some(
+            (participant) => participant.sessionId === sessionId
+        );
+        if (!wasPresent) {
+            return;
+        }
+
+        this.options.collaborationBroker.removeParticipant(
+            diagramId,
+            sessionId
+        );
+        this.publishPresenceEvent(diagram, sessionId);
+    }
+
     updateDiagramSession(
         diagramId: string,
         sessionId: string,
         input: unknown,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
         const diagram = this.requireDiagram(diagramId);
-        const access = this.getDiagramAccess(diagram, actor);
+        const access = this.getDiagramAccess(diagram, actor, options);
         if (!this.canView(access)) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
@@ -766,12 +849,21 @@ export class PersistenceService {
         };
 
         this.repository.putDiagramSession(nextSession);
-        this.publishCollaborationEvent({
-            type: 'session',
-            diagramId,
-            sessionId: nextSession.id,
-            collaboration: this.toDiagramCollaboration(diagram),
-        });
+        if (shouldClose) {
+            this.unregisterDiagramPresence(diagramId, sessionId);
+        }
+
+        if (
+            session.status !== nextSession.status ||
+            session.closedAt !== nextSession.closedAt
+        ) {
+            this.publishCollaborationEvent({
+                type: 'session',
+                diagramId,
+                sessionId: nextSession.id,
+                collaboration: this.toDiagramCollaboration(diagram),
+            });
+        }
 
         return {
             session: this.toDiagramSessionResponse(nextSession),
@@ -779,10 +871,66 @@ export class PersistenceService {
         };
     }
 
+    updateDiagramSessionPresence(
+        diagramId: string,
+        sessionId: string,
+        input: unknown,
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
+    ) {
+        const diagram = this.requireDiagram(diagramId);
+        const access = this.getDiagramAccess(diagram, actor, options);
+        if (!this.canView(access)) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
+        const session = this.repository.getDiagramSession(diagramId, sessionId);
+        if (!session) {
+            throw new AppError(
+                'Diagram session not found.',
+                404,
+                'DIAGRAM_SESSION_NOT_FOUND'
+            );
+        }
+
+        if (session.status === 'closed') {
+            throw new AppError(
+                'Diagram edit session has already been closed.',
+                409,
+                'DIAGRAM_SESSION_CLOSED'
+            );
+        }
+
+        const payload = updateDiagramSessionPresenceSchema.parse(input);
+        const existingParticipant = this.options.collaborationBroker
+            ?.listParticipants(diagramId)
+            .find((participant) => participant.sessionId === sessionId);
+        if (existingParticipant && this.options.collaborationBroker) {
+            const cursor: DiagramParticipantCursorState | null = payload.cursor
+                ? {
+                      ...payload.cursor,
+                      updatedAt: new Date().toISOString(),
+                  }
+                : null;
+
+            this.options.collaborationBroker.updateParticipantCursor(
+                diagramId,
+                sessionId,
+                cursor
+            );
+            this.publishPresenceEvent(diagram, sessionId);
+        }
+
+        return {
+            collaboration: this.toDiagramCollaboration(diagram),
+        };
+    }
+
     upsertDiagram(
         diagramId: string,
         input: unknown,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
         const payload = upsertDiagramSchema.parse(input);
         const existing = this.repository.getDiagram(diagramId);
@@ -791,13 +939,17 @@ export class PersistenceService {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
 
+        if (!existing && options?.shareToken) {
+            throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
+        }
+
         if (existing) {
-            this.assertCanEditDiagram(existing, actor);
+            this.assertCanEditDiagram(existing, actor, options);
             if (existing.projectId !== payload.projectId) {
-                this.assertCanEditProject(project, actor);
+                this.assertCanEditProject(project, actor, options);
             }
         } else {
-            this.assertCanEditProject(project, actor);
+            this.assertCanEditProject(project, actor, options);
         }
 
         const document = diagramDocumentSchema.parse({
@@ -867,20 +1019,21 @@ export class PersistenceService {
         });
         return this.toDiagramResponse(
             record,
-            this.getDiagramAccess(record, actor)
+            this.getDiagramAccess(record, actor, options)
         );
     }
 
     updateDiagram(
         diagramId: string,
         input: unknown,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
         const existing = this.repository.getDiagram(diagramId);
         if (!existing) {
             throw new AppError('Diagram not found.', 404, 'DIAGRAM_NOT_FOUND');
         }
-        this.assertCanEditDiagram(existing, actor);
+        this.assertCanEditDiagram(existing, actor, options);
 
         const payload = updateDiagramSchema.parse(input);
         const nextProject = payload.projectId
@@ -891,7 +1044,7 @@ export class PersistenceService {
             throw new AppError('Project not found.', 404, 'PROJECT_NOT_FOUND');
         }
         if (payload.projectId) {
-            this.assertCanEditProject(nextProject, actor);
+            this.assertCanEditProject(nextProject, actor, options);
         }
 
         const now = new Date().toISOString();
@@ -946,7 +1099,7 @@ export class PersistenceService {
         });
         return this.toDiagramResponse(
             record,
-            this.getDiagramAccess(record, actor)
+            this.getDiagramAccess(record, actor, options)
         );
     }
 
@@ -1611,9 +1764,10 @@ export class PersistenceService {
 
     private assertCanEditProject(
         project: ProjectRecord,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
-        if (this.canEdit(this.getProjectAccess(project, actor))) {
+        if (this.canEdit(this.getProjectAccess(project, actor, options))) {
             return;
         }
 
@@ -1622,9 +1776,10 @@ export class PersistenceService {
 
     private assertCanEditDiagram(
         diagram: DiagramRecord,
-        actor?: AppUserRecord | null
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
     ) {
-        if (this.canEdit(this.getDiagramAccess(diagram, actor))) {
+        if (this.canEdit(this.getDiagramAccess(diagram, actor, options))) {
             return;
         }
 
@@ -2024,6 +2179,75 @@ export class PersistenceService {
             .filter((session) => session.status !== 'closed').length;
     }
 
+    private getPresenceParticipants(diagramId: string) {
+        return (
+            this.options.collaborationBroker?.listParticipants(diagramId) ?? []
+        );
+    }
+
+    private getPresenceColor(seed: string) {
+        let hash = 0;
+        for (const character of seed) {
+            hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+        }
+
+        return PRESENCE_COLORS[hash % PRESENCE_COLORS.length];
+    }
+
+    private getPresenceInitials(displayName: string, email: string | null) {
+        const source = displayName.trim() || email?.trim() || 'Guest';
+        const parts = source.split(/\s+/).filter(Boolean);
+        return parts
+            .slice(0, 2)
+            .map((part) => part[0]?.toUpperCase() ?? '')
+            .join('')
+            .slice(0, 4);
+    }
+
+    private buildPresenceParticipant(
+        session: DiagramSessionRecord,
+        actor?: AppUserRecord | null,
+        options?: { shareToken?: string | null }
+    ): Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'> {
+        const persistedUser =
+            actor ??
+            (session.ownerUserId
+                ? (this.repository.getUser(session.ownerUserId) ?? null)
+                : null);
+        const isAnonymousSharedSession =
+            !persistedUser && Boolean(options?.shareToken);
+        const fallbackDisplayName = isAnonymousSharedSession
+            ? `Guest ${session.id.slice(0, 4)}`
+            : `Session ${session.id.slice(0, 4)}`;
+        const displayName =
+            persistedUser?.displayName?.trim() ||
+            persistedUser?.email?.trim() ||
+            fallbackDisplayName;
+        const email = persistedUser?.email ?? null;
+        const userId = persistedUser?.id ?? null;
+        const colorSeed = userId ?? session.id;
+
+        return {
+            sessionId: session.id,
+            userId,
+            displayName,
+            email,
+            initials: this.getPresenceInitials(displayName, email),
+            color: this.getPresenceColor(colorSeed),
+            mode: session.mode,
+            lastSeenAt: new Date().toISOString(),
+        };
+    }
+
+    private publishPresenceEvent(diagram: DiagramRecord, sessionId: string) {
+        this.publishCollaborationEvent({
+            type: 'presence',
+            diagramId: diagram.id,
+            sessionId,
+            collaboration: this.toDiagramCollaboration(diagram),
+        });
+    }
+
     private toDiagramCollaboration(
         diagram: DiagramRecord
     ): DiagramCollaborationState {
@@ -2043,6 +2267,9 @@ export class PersistenceService {
                 sessionEndpoint: `/api/diagrams/${diagram.id}/sessions`,
             },
             activeSessionCount: this.countActiveDiagramSessions(diagram.id),
+            presence: {
+                participants: this.getPresenceParticipants(diagram.id),
+            },
         };
     }
 

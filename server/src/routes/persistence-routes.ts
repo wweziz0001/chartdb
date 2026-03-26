@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context/app-context.js';
+import { resolveRequestShareToken } from '../utils/request-share-token.js';
 
 export const registerPersistenceRoutes = (
     app: FastifyInstance,
@@ -177,34 +178,50 @@ export const registerPersistenceRoutes = (
 
     app.get('/api/diagrams/:id', async (request) => {
         const params = request.params as { id: string };
+        const shareToken = resolveRequestShareToken(request);
         return context.persistenceService.getDiagram(
             params.id,
-            request.auth.user
+            request.auth.user,
+            {
+                shareToken,
+            }
         );
     });
 
     app.post('/api/diagrams/:id/sessions', async (request) => {
         const params = request.params as { id: string };
+        const shareToken = resolveRequestShareToken(request);
         return context.persistenceService.createDiagramSession(
             params.id,
             request.body,
-            request.auth.user
+            request.auth.user,
+            {
+                shareToken,
+            }
         );
     });
 
     app.get('/api/diagrams/:id/sessions/:sessionId', async (request) => {
         const params = request.params as { id: string; sessionId: string };
+        const shareToken = resolveRequestShareToken(request);
         return context.persistenceService.getDiagramSession(
             params.id,
             params.sessionId,
-            request.auth.user
+            request.auth.user,
+            {
+                shareToken,
+            }
         );
     });
 
     app.get('/api/diagrams/:id/events', async (request, reply) => {
         const params = request.params as { id: string };
-        const query = request.query as { sessionId?: string };
+        const query = request.query as {
+            sessionId?: string;
+            shareToken?: string;
+        };
         const sessionId = query.sessionId?.trim();
+        const shareToken = resolveRequestShareToken(request);
 
         if (!sessionId) {
             return reply.code(400).send({
@@ -213,12 +230,14 @@ export const registerPersistenceRoutes = (
             });
         }
 
-        const snapshot =
-            context.persistenceService.assertCanSubscribeToDiagramEvents(
-                params.id,
-                sessionId,
-                request.auth.user
-            );
+        const snapshot = context.persistenceService.registerDiagramPresence(
+            params.id,
+            sessionId,
+            request.auth.user,
+            {
+                shareToken,
+            }
+        );
 
         reply.hijack();
         reply.raw.writeHead(200, {
@@ -261,6 +280,10 @@ export const registerPersistenceRoutes = (
         const cleanup = () => {
             clearInterval(heartbeat);
             unsubscribe();
+            context.persistenceService.unregisterDiagramPresence(
+                params.id,
+                sessionId
+            );
         };
 
         request.raw.on('close', cleanup);
@@ -269,32 +292,61 @@ export const registerPersistenceRoutes = (
 
     app.patch('/api/diagrams/:id/sessions/:sessionId', async (request) => {
         const params = request.params as { id: string; sessionId: string };
+        const shareToken = resolveRequestShareToken(request);
         return context.persistenceService.updateDiagramSession(
             params.id,
             params.sessionId,
             request.body,
-            request.auth.user
+            request.auth.user,
+            {
+                shareToken,
+            }
         );
     });
 
+    app.patch(
+        '/api/diagrams/:id/sessions/:sessionId/presence',
+        async (request) => {
+            const params = request.params as { id: string; sessionId: string };
+            const shareToken = resolveRequestShareToken(request);
+            return context.persistenceService.updateDiagramSessionPresence(
+                params.id,
+                params.sessionId,
+                request.body,
+                request.auth.user,
+                {
+                    shareToken,
+                }
+            );
+        }
+    );
+
     app.put('/api/diagrams/:id', async (request) => {
         const params = request.params as { id: string };
+        const shareToken = resolveRequestShareToken(request);
         return {
             diagram: context.persistenceService.upsertDiagram(
                 params.id,
                 request.body,
-                request.auth.user
+                request.auth.user,
+                {
+                    shareToken,
+                }
             ),
         };
     });
 
     app.patch('/api/diagrams/:id', async (request) => {
         const params = request.params as { id: string };
+        const shareToken = resolveRequestShareToken(request);
         return {
             diagram: context.persistenceService.updateDiagram(
                 params.id,
                 request.body,
-                request.auth.user
+                request.auth.user,
+                {
+                    shareToken,
+                }
             ),
         };
     });

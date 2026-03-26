@@ -1,4 +1,27 @@
-export type DiagramCollaborationEventType = 'snapshot' | 'session' | 'document';
+export type DiagramCollaborationEventType =
+    | 'snapshot'
+    | 'session'
+    | 'document'
+    | 'presence';
+
+export interface DiagramParticipantCursorState {
+    x: number;
+    y: number;
+    updatedAt: string;
+}
+
+export interface DiagramPresenceParticipant {
+    sessionId: string;
+    userId: string | null;
+    displayName: string;
+    email: string | null;
+    initials: string;
+    color: string;
+    mode: 'view' | 'edit';
+    joinedAt: string;
+    lastSeenAt: string;
+    cursor: DiagramParticipantCursorState | null;
+}
 
 export interface DiagramCollaborationEventState {
     document: {
@@ -16,6 +39,9 @@ export interface DiagramCollaborationEventState {
         sessionEndpoint: string;
     };
     activeSessionCount: number;
+    presence: {
+        participants: DiagramPresenceParticipant[];
+    };
 }
 
 export interface DiagramCollaborationEvent {
@@ -34,6 +60,10 @@ export class DiagramCollaborationBroker {
     private readonly listeners = new Map<
         string,
         Set<DiagramCollaborationListener>
+    >();
+    private readonly participants = new Map<
+        string,
+        Map<string, DiagramPresenceParticipant>
     >();
 
     subscribe(diagramId: string, listener: DiagramCollaborationListener) {
@@ -69,5 +99,72 @@ export class DiagramCollaborationBroker {
                 });
             });
         }
+    }
+
+    upsertParticipant(
+        diagramId: string,
+        participant: Omit<DiagramPresenceParticipant, 'joinedAt' | 'cursor'>
+    ) {
+        const diagramParticipants =
+            this.participants.get(diagramId) ?? new Map();
+        const existingParticipant = diagramParticipants.get(
+            participant.sessionId
+        );
+        diagramParticipants.set(participant.sessionId, {
+            ...participant,
+            joinedAt: existingParticipant?.joinedAt ?? participant.lastSeenAt,
+            cursor: existingParticipant?.cursor ?? null,
+        });
+        this.participants.set(diagramId, diagramParticipants);
+        return this.listParticipants(diagramId);
+    }
+
+    removeParticipant(diagramId: string, sessionId: string) {
+        const diagramParticipants = this.participants.get(diagramId);
+        if (!diagramParticipants) {
+            return this.listParticipants(diagramId);
+        }
+
+        diagramParticipants.delete(sessionId);
+        if (diagramParticipants.size === 0) {
+            this.participants.delete(diagramId);
+        }
+
+        return this.listParticipants(diagramId);
+    }
+
+    updateParticipantCursor(
+        diagramId: string,
+        sessionId: string,
+        cursor: DiagramParticipantCursorState | null
+    ) {
+        const diagramParticipants = this.participants.get(diagramId);
+        const existingParticipant = diagramParticipants?.get(sessionId);
+        if (!diagramParticipants || !existingParticipant) {
+            return this.listParticipants(diagramId);
+        }
+
+        diagramParticipants.set(sessionId, {
+            ...existingParticipant,
+            lastSeenAt: cursor?.updatedAt ?? new Date().toISOString(),
+            cursor,
+        });
+
+        return this.listParticipants(diagramId);
+    }
+
+    listParticipants(diagramId: string): DiagramPresenceParticipant[] {
+        const diagramParticipants = this.participants.get(diagramId);
+        if (!diagramParticipants) {
+            return [];
+        }
+
+        return [...diagramParticipants.values()].sort((left, right) => {
+            if (left.joinedAt !== right.joinedAt) {
+                return left.joinedAt.localeCompare(right.joinedAt);
+            }
+
+            return left.displayName.localeCompare(right.displayName);
+        });
     }
 }
