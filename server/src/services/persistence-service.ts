@@ -48,6 +48,10 @@ import {
     type DiagramParticipantCursorState,
     type DiagramPresenceParticipant,
 } from './diagram-collaboration-broker.js';
+import {
+    isDiagramSessionActive,
+    resolveDiagramPresenceIdentity,
+} from './diagram-presence.js';
 
 export interface BootstrapResult {
     user: AppUserRecord;
@@ -133,23 +137,6 @@ export interface DiagramEditSessionResponse {
         websocketProtocol: string | null;
     };
 }
-
-const resolveDiagramPresenceIdentity = (
-    session: Pick<DiagramSessionRecord, 'id' | 'ownerUserId' | 'clientId'>
-) => {
-    if (session.ownerUserId) {
-        return `user:${session.ownerUserId}`;
-    }
-
-    const clientId = session.clientId?.trim();
-    if (clientId) {
-        return `client:${clientId}`;
-    }
-
-    return `session:${session.id}`;
-};
-
-const DIAGRAM_SESSION_STALE_TTL_MS = 45_000;
 
 const PRESENCE_COLORS = [
     '#2563eb',
@@ -2203,7 +2190,7 @@ export class PersistenceService {
         return new Set(
             this.repository
                 .listDiagramSessions(diagramId)
-                .filter((session) => session.status !== 'closed')
+                .filter((session) => isDiagramSessionActive(session))
                 .map((session) => resolveDiagramPresenceIdentity(session))
         ).size;
     }
@@ -2220,15 +2207,7 @@ export class PersistenceService {
         const now = Date.now();
 
         for (const session of sessions) {
-            if (session.status === 'closed') {
-                continue;
-            }
-
-            const lastHeartbeatAt = Date.parse(session.lastHeartbeatAt);
-            if (
-                Number.isFinite(lastHeartbeatAt) &&
-                now - lastHeartbeatAt <= DIAGRAM_SESSION_STALE_TTL_MS
-            ) {
+            if (isDiagramSessionActive(session, now)) {
                 continue;
             }
 
