@@ -100,7 +100,7 @@ const CollectionNavLink = ({
     </NavLink>
 );
 
-const DashboardShellFrame = () => {
+export const DashboardShellFrame = () => {
     const { authenticated, enabled, logout, user } = useAuth();
     const { listCollections } = useStorage();
     const [collections, setCollections] = useState<

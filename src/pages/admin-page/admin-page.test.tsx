@@ -1,5 +1,5 @@
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
@@ -147,9 +147,9 @@ beforeEach(() => {
 });
 
 describe('admin page', () => {
-    it('blocks non-admin users from protected admin content', () => {
+    it('redirects non-admin users away from protected admin content', () => {
         render(
-            <MemoryRouter>
+            <MemoryRouter initialEntries={['/admin']}>
                 <authContext.Provider
                     value={createAuthValue({
                         user: {
@@ -158,16 +158,22 @@ describe('admin page', () => {
                         },
                     })}
                 >
-                    <AdminRouteGuard>
-                        <div>secret admin content</div>
-                    </AdminRouteGuard>
+                    <Routes>
+                        <Route path="/" element={<div>dashboard home</div>} />
+                        <Route
+                            path="/admin"
+                            element={
+                                <AdminRouteGuard>
+                                    <div>secret admin content</div>
+                                </AdminRouteGuard>
+                            }
+                        />
+                    </Routes>
                 </authContext.Provider>
             </MemoryRouter>
         );
 
-        expect(
-            screen.getByText('Administrator access required')
-        ).toBeInTheDocument();
+        expect(screen.getByText('dashboard home')).toBeInTheDocument();
         expect(
             screen.queryByText('secret admin content')
         ).not.toBeInTheDocument();
