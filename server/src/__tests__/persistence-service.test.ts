@@ -232,6 +232,68 @@ describe('persistence foundation', () => {
         repository.close();
     });
 
+    it('closes superseded sessions for the same logical participant after reconnect', () => {
+        const { repository, service } = createService();
+        const bootstrap = service.bootstrap();
+
+        service.upsertDiagram('diagram-session-reconnect', {
+            projectId: bootstrap.defaultProject.id,
+            diagram: {
+                id: 'ignored',
+                name: 'Reconnect Diagram',
+                databaseType: 'postgresql',
+                tables: [{ id: 'tbl-1', name: 'users' }],
+                createdAt: '2026-03-22T12:00:00.000Z',
+                updatedAt: '2026-03-22T12:00:00.000Z',
+            },
+        });
+
+        const firstSession = service.createDiagramSession(
+            'diagram-session-reconnect',
+            {
+                mode: 'edit',
+                clientId: 'reconnect-client',
+            }
+        );
+        expect(firstSession.collaboration.activeSessionCount).toBe(1);
+
+        const secondSession = service.createDiagramSession(
+            'diagram-session-reconnect',
+            {
+                mode: 'edit',
+                clientId: 'reconnect-client',
+            }
+        );
+        expect(secondSession.collaboration.activeSessionCount).toBe(1);
+
+        const reloadedFirstSession = repository.getDiagramSession(
+            'diagram-session-reconnect',
+            firstSession.session.id
+        );
+        expect(reloadedFirstSession?.status).toBe('closed');
+
+        expect(() =>
+            service.upsertDiagram('diagram-session-reconnect', {
+                projectId: bootstrap.defaultProject.id,
+                sessionId: firstSession.session.id,
+                baseVersion: firstSession.session.baseVersion,
+                diagram: {
+                    id: 'ignored',
+                    name: 'Reconnect Diagram',
+                    databaseType: 'postgresql',
+                    tables: [
+                        { id: 'tbl-1', name: 'users' },
+                        { id: 'tbl-2', name: 'teams' },
+                    ],
+                    createdAt: '2026-03-22T12:00:00.000Z',
+                    updatedAt: '2026-03-22T12:05:00.000Z',
+                },
+            })
+        ).toThrowError(/session has already been closed/i);
+
+        repository.close();
+    });
+
     it('searches projects by exact term, partial matches, and combined filters', () => {
         const { repository, service } = createService();
         service.bootstrap();

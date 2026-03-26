@@ -682,6 +682,7 @@ export class PersistenceService {
             closedAt: null,
         };
 
+        this.closeSupersededDiagramSessions(diagram.id, session);
         this.repository.putDiagramSession(session);
         this.publishCollaborationEvent({
             type: 'session',
@@ -2212,6 +2213,35 @@ export class PersistenceService {
             }
 
             const closedAt = new Date(now).toISOString();
+            this.repository.putDiagramSession({
+                ...session,
+                status: 'closed',
+                updatedAt: closedAt,
+                closedAt,
+            });
+            this.options.collaborationBroker?.removeParticipant(
+                diagramId,
+                session.id
+            );
+        }
+    }
+
+    private closeSupersededDiagramSessions(
+        diagramId: string,
+        nextSession: DiagramSessionRecord
+    ) {
+        const nextIdentity = resolveDiagramPresenceIdentity(nextSession);
+
+        for (const session of this.repository.listDiagramSessions(diagramId)) {
+            if (
+                session.id === nextSession.id ||
+                !isDiagramSessionActive(session) ||
+                resolveDiagramPresenceIdentity(session) !== nextIdentity
+            ) {
+                continue;
+            }
+
+            const closedAt = new Date().toISOString();
             this.repository.putDiagramSession({
                 ...session,
                 status: 'closed',

@@ -937,15 +937,12 @@ describe('collaboration routes', () => {
                 },
             },
         });
-        expect(staleCursorResponse.statusCode).toBe(200);
-        expect(
-            staleCursorResponse.json().collaboration.presence.participants
-        ).toEqual([
+        expect(staleCursorResponse.statusCode).toBe(409);
+        expect(staleCursorResponse.json()).toEqual(
             expect.objectContaining({
-                sessionId: secondSession.session.id,
-                cursor: null,
-            }),
-        ]);
+                code: 'DIAGRAM_SESSION_CLOSED',
+            })
+        );
 
         await secondStream.close();
         await firstStream.close();
